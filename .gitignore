@@ -1,0 +1,12 @@
+node_modules/
+.next/
+dist/
+*.db
+*.db-*
+.env
+.env.local
+contracts/out/
+contracts/cache/
+contracts/lib/
+.DS_Store
+*.tsbuildinfo

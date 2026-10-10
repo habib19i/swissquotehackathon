@@ -1,0 +1,12 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.28"
+optimizer = true
+optimizer_runs = 200
+
+# Install dependencies (workstream 4, milestone M4):
+#   forge install OpenZeppelin/openzeppelin-contracts
+# then add the account SDK chosen after verifying Safe vs Kernel.

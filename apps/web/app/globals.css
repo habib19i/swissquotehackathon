@@ -1,0 +1,54 @@
+/* Calm, bank-grade base styles (CLAUDE.md section 2). Workstream 3 owns the design system. */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --text: #14181f;
+  --muted: #5b6472;
+  --accent: #e2001a; /* Swissquote-inspired red, used sparingly */
+  --ok: #1b7f4b;
+  --warn: #b25e00;
+  --radius: 16px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 18px; /* large text for older clients */
+  line-height: 1.5;
+}
+
+main {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+.card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.badge-mock {
+  display: inline-block;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #fff3e0;
+  color: var(--warn);
+  margin-left: 8px;
+}
+
+.prototype-banner {
+  font-size: 14px;
+  color: var(--muted);
+  text-align: center;
+  margin-bottom: 16px;
+}

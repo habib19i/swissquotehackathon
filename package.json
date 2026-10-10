@@ -1,0 +1,18 @@
+{
+  "name": "swissquote-wallet",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Swissquote Wallet Challenge (EPFL, Oct 2026) - self-custody wallet prototype",
+  "engines": { "node": ">=22.13" },
+  "packageManager": "pnpm@10.18.0",
+  "scripts": {
+    "dev": "concurrently -n web,cosigner,recovery -c blue,green,magenta \"pnpm --filter @sqw/web dev\" \"pnpm --filter @sqw/cosigner dev\" \"pnpm --filter @sqw/recovery-provider dev\"",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.6",
+    "typescript": "^5.9.3"
+  }
+}
