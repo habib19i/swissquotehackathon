@@ -6,6 +6,9 @@
 import type { DatabaseSync } from "node:sqlite";
 import { RECOVERY_WAIT_SECONDS, type RecoveryRequest, type RecoveryStatus } from "@sqw/shared";
 
+/** A recovery must be verified (recovery key + face check) within this time after it starts. */
+const VERIFY_WITHIN_MS = 10 * 60_000;
+
 interface Row {
   id: string;
   wallet_id: string;
@@ -36,7 +39,15 @@ export function recoveries(db: DatabaseSync) {
     createdAt: r.created_at,
   });
 
+  /** Recoveries started but never verified in time are closed, so they stop alarming the client. */
+  function expireStale() {
+    db.prepare("UPDATE recoveries SET status = 'expired' WHERE status = 'awaiting-verification' AND created_at < ?").run(
+      new Date(Date.now() - VERIFY_WITHIN_MS).toISOString(),
+    );
+  }
+
   function get(id: string): RecoveryRequest | undefined {
+    expireStale();
     const row = db.prepare("SELECT * FROM recoveries WHERE id = ?").get(id) as Row | undefined;
     return row && toRequest(row);
   }
@@ -66,6 +77,7 @@ export function recoveries(db: DatabaseSync) {
 
     /** The latest recovery of a wallet still in progress, for the client's other devices to see and cancel. */
     active(walletId: string): RecoveryRequest | undefined {
+      expireStale();
       const row = db
         .prepare("SELECT * FROM recoveries WHERE wallet_id = ? AND status IN ('awaiting-verification', 'waiting-period') ORDER BY created_at DESC")
         .get(walletId) as Row | undefined;

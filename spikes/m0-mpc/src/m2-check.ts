@@ -51,7 +51,8 @@ run(async () => {
   console.log(`1. Key created: ${mpcPublicKey}`);
 
   const pocketPublicKey = bytesToHex(secp256k1.getPublicKey(newPocketKey(), true));
-  const record = await call<WalletRecord>("/wallets", { walletId, clientNumber: "CH-4417-2093", pocketPublicKey, plan: "standard" });
+  const clientNumber = `CH-TEST-${walletId.slice(0, 4)}`; // never a demo client number
+  const record = await call<WalletRecord>("/wallets", { walletId, clientNumber, pocketPublicKey, plan: "standard" });
   console.log(`2. Registered. Savings safe ${record.savingsAddress}`);
 
   const cosign = (request: unknown) => (inputIndex: number) => ({
@@ -65,7 +66,7 @@ run(async () => {
 
   const { issuedAt } = await call<{ issuedAt: string }>(`/wallets/${walletId}/ownership/challenge`, {});
   const safe = savingsSafe(share.publicKey);
-  const toSign = ownershipToSign(ownershipMessage("CH-4417-2093", safe.address, issuedAt), safe.output);
+  const toSign = ownershipToSign(ownershipMessage(clientNumber, safe.address, issuedAt), safe.output);
   await signAllInputs(toSign, cosign({ kind: "ownership-proof" }), (pk, h, sig) => verifyDigest(sig, h, pk));
   const verified = await call<WalletRecord>(`/wallets/${walletId}/ownership/proof`, { signature: encodeOwnershipProof(toSign) });
   console.log(`3. Ownership verified by Swissquote at ${verified.ownershipVerifiedAt}`);

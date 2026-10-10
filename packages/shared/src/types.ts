@@ -74,6 +74,8 @@ export type RecoveryStatus =
   | "cancelled"
   /** Refused: missing or wrong recovery key, or failed face check. */
   | "refused"
+  /** Started but never verified in time. */
+  | "expired"
   | "completed";
 
 export interface RecoveryRequest {

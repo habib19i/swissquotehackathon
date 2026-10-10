@@ -65,3 +65,14 @@ test("the provider sees for itself whether Swissquote is down", async () => {
   assert.equal(await swissquoteIsOffline(swissquote), true);
   assert.equal(await swissquoteIsOffline("http://localhost:1"), true, "unreachable counts as down");
 });
+
+test("a recovery that is never verified expires and stops showing as in progress", () => {
+  const db = new DatabaseSync(":memory:");
+  const store = recoveries(db);
+  const stale = store.start("w1");
+  db.prepare("UPDATE recoveries SET created_at = ? WHERE id = ?").run(new Date(Date.now() - 11 * 60_000).toISOString(), stale.id);
+  assert.equal(store.active("w1"), undefined);
+  assert.equal(store.get(stale.id)?.status, "expired");
+  const fresh = store.start("w1");
+  assert.equal(store.active("w1")?.id, fresh.id);
+});
