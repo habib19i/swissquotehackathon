@@ -5,7 +5,7 @@
  * Runs as its own process with its own database (CLAUDE.md section 4).
  */
 import { PARTY_ID } from "@sqw/mpc";
-import { mpcRouter, peerKeysFrom, sqliteIdentity, sqliteMpcStore } from "@sqw/mpc/server";
+import { MpcError, mpcRouter, peerKeysFrom, sqliteIdentity, sqliteMpcStore } from "@sqw/mpc/server";
 import { createApp, notImplemented } from "./http";
 import { db } from "./db";
 
@@ -23,6 +23,10 @@ app.use(
     store: sqliteMpcStore(db),
     identity: sqliteIdentity(db),
     peerPublicKey: peerKeysFrom({ [PARTY_ID.cosigner]: COSIGNER_URL }),
+    // The provider co-signs only when Swissquote is gone, or during a recovery (M3).
+    authorizeSign: async () => {
+      throw new MpcError(403, "The recovery provider only signs when Swissquote is unavailable.");
+    },
   }),
 );
 

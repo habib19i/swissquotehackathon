@@ -1,31 +1,35 @@
 /**
- * Networked key generation: the phone coordinates, the two services run the real /mpc routes
- * over HTTP with their own stores.
+ * Networked key generation and signing: the phone coordinates, the two services run the real
+ * /mpc routes over HTTP with their own stores.
  */
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import express from "express";
+import { sha256 } from "@noble/hashes/sha2.js";
 import { hexToBytes } from "@noble/hashes/utils.js";
-import { coordinateKeygen, type PartyHandle } from "./coordinator";
-import { localKeygenParty, remoteKeygenParty } from "./client";
+import { coordinateKeygen, coordinateSign, type PartyHandle } from "./coordinator";
+import { localKeygenParty, remoteKeygenParty, remoteSigner } from "./client";
 import { KeygenParty } from "./keygen";
 import { Keyshare, nodeDkls, sign } from "./node";
 import { PARTY_ID } from "./parties";
 import { newBoxKeyPair, seal, unseal } from "./seal";
-import { mpcRouter, peerKeysFrom, type MpcSession, type MpcStore } from "./server";
+import { MpcError, mpcRouter, peerKeysFrom, type MpcSession, type MpcStore } from "./server";
+import { SignParty } from "./sign";
 import { bitcoinCompact, verifyDigest } from "./signature";
 import type { WireMessage } from "./wire";
 
 const { phone, cosigner, "recovery-provider": provider } = PARTY_ID;
 
 function memoryStore() {
-  const shares = new Map<string, Uint8Array>();
+  const shares = new Map<string, { share: Uint8Array; publicKey: string }>();
   const sessions = new Map<string, MpcSession>();
   const store: MpcStore = {
     hasShare: (walletId) => shares.has(walletId),
-    saveShare: (walletId, share) => void shares.set(walletId, share),
+    getShare: (walletId) => shares.get(walletId)?.share,
+    getPublicKey: (walletId) => shares.get(walletId)?.publicKey,
+    saveShare: (walletId, share, publicKey) => void shares.set(walletId, { share, publicKey }),
     loadSession: (id) => sessions.get(id),
     saveSession: (id, session) => void sessions.set(id, session),
     deleteSession: (id) => void sessions.delete(id),
@@ -33,13 +37,33 @@ function memoryStore() {
   return { store, shares };
 }
 
+/** Test policy: signs the SHA-256 of a text message, and refuses anything mentioning "steal". */
+interface TestRequest {
+  message: string;
+}
+const digestOf = (request: TestRequest) => sha256(new TextEncoder().encode(request.message));
+
 const urls: Record<number, string> = {};
 const servers = [cosigner, provider].map((partyId) => {
   const { store, shares } = memoryStore();
-  const app = express().use(mpcRouter({ partyId, store, identity: newBoxKeyPair(), peerPublicKey: peerKeysFrom(urls) }));
+  const signed: { request: unknown; signature: { r: Uint8Array; s: Uint8Array } }[] = [];
+  const app = express().use(
+    mpcRouter({
+      partyId,
+      store,
+      identity: newBoxKeyPair(),
+      peerPublicKey: peerKeysFrom(urls),
+      authorizeSign: async (_walletId, request) => {
+        const { message } = request as TestRequest;
+        if (message.includes("steal")) throw new MpcError(403, "Refused by policy");
+        return digestOf({ message });
+      },
+      onSigned: (_walletId, request, signature) => void signed.push({ request, signature }),
+    }),
+  );
   const server = app.listen(0);
   urls[partyId] = `http://localhost:${(server.address() as AddressInfo).port}`;
-  return { server, shares };
+  return { server, shares, signed };
 });
 const [cosignerService, providerService] = servers;
 after(() => servers.forEach((s) => s.server.close()));
@@ -70,8 +94,8 @@ test("phone, Swissquote and the recovery provider create a key over HTTP; each k
   ]);
 
   const phoneShare = local.share();
-  const cosignerShare = Keyshare.fromBytes(cosignerService.shares.get(walletId)!);
-  const providerShare = Keyshare.fromBytes(providerService.shares.get(walletId)!);
+  const cosignerShare = Keyshare.fromBytes(cosignerService.shares.get(walletId)!.share);
+  const providerShare = Keyshare.fromBytes(providerService.shares.get(walletId)!.share);
   assert.deepEqual(phoneShare.publicKey, hexToBytes(publicKey));
   assert.deepEqual(cosignerShare.publicKey, hexToBytes(publicKey));
   assert.deepEqual(providerShare.publicKey, hexToBytes(publicKey));
@@ -116,4 +140,81 @@ test("sealed messages cannot be read or altered by the relay", () => {
   const tampered = { ...sealed, payload: sealed.payload.slice(0, -2) + (sealed.payload.endsWith("00") ? "01" : "00") };
   assert.throws(() => unseal(tampered, sender.publicKey, recipient.secretKey), /failed authentication/);
   assert.throws(() => unseal(sealed, newBoxKeyPair().publicKey, recipient.secretKey), /failed authentication/);
+});
+
+/** A wallet created over HTTP; returns the phone's share. */
+async function createWallet() {
+  const walletId = randomUUID();
+  const sessionId = randomUUID();
+  const local = localKeygenParty(KeygenParty.create(nodeDkls, phone));
+  await coordinateKeygen([
+    local,
+    remoteKeygenParty(urls[cosigner], cosigner, walletId, sessionId),
+    remoteKeygenParty(urls[provider], provider, walletId, sessionId),
+  ]);
+  return { walletId, phoneShare: local.share() };
+}
+
+test("phone + Swissquote sign over HTTP; Swissquote computes what it signs itself", async () => {
+  const { walletId, phoneShare } = await createWallet();
+  const request = { message: "Pay Léo CHF 20" };
+  const digest = digestOf(request);
+
+  const signature = await coordinateSign(
+    SignParty.create(nodeDkls, phoneShare),
+    remoteSigner(urls[cosigner], cosigner, walletId, randomUUID(), request),
+    digest,
+  );
+
+  assert.ok(verifyDigest(bitcoinCompact(signature.r, signature.s), digest, phoneShare.publicKey));
+  const record = cosignerService.signed.at(-1)!;
+  assert.deepEqual(record.request, request);
+  assert.deepEqual(record.signature, signature, "Swissquote holds the same signature for its records");
+});
+
+test("phone + recovery provider can sign without Swissquote", async () => {
+  const { walletId, phoneShare } = await createWallet();
+  const request = { message: "Move everything out" };
+  const signature = await coordinateSign(
+    SignParty.create(nodeDkls, phoneShare),
+    remoteSigner(urls[provider], provider, walletId, randomUUID(), request),
+    digestOf(request),
+  );
+  assert.ok(verifyDigest(bitcoinCompact(signature.r, signature.s), digestOf(request), phoneShare.publicKey));
+});
+
+test("a holder's policy can refuse to sign", async () => {
+  const { walletId, phoneShare } = await createWallet();
+  const request = { message: "steal everything" };
+  await assert.rejects(
+    coordinateSign(
+      SignParty.create(nodeDkls, phoneShare),
+      remoteSigner(urls[cosigner], cosigner, walletId, randomUUID(), request),
+      digestOf(request),
+    ),
+    /Refused by policy/,
+  );
+});
+
+test("signing stops if the phone and the holder would sign different things", async () => {
+  const { walletId, phoneShare } = await createWallet();
+  const shown = { message: "Pay Léo CHF 20" };
+  const sent = { message: "Pay Léo CHF 2000" };
+  await assert.rejects(
+    coordinateSign(
+      SignParty.create(nodeDkls, phoneShare),
+      remoteSigner(urls[cosigner], cosigner, walletId, randomUUID(), sent),
+      digestOf(shown),
+    ),
+    /would sign something different/,
+  );
+});
+
+test("a signing session is single-use: its pre-signature cannot be spent twice", async () => {
+  const { walletId, phoneShare } = await createWallet();
+  const request = { message: "Pay Adam CHF 10" };
+  const sessionId = randomUUID();
+  const remote = remoteSigner(urls[cosigner], cosigner, walletId, sessionId, request);
+  await coordinateSign(SignParty.create(nodeDkls, phoneShare), remote, digestOf(request));
+  await assert.rejects(remote.finish([]), /Unknown session/);
 });

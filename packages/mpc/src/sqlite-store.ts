@@ -6,6 +6,21 @@ import type { DatabaseSync } from "node:sqlite";
 import { newBoxKeyPair, type BoxKeyPair } from "./seal";
 import type { MpcSession, MpcStore } from "./server";
 
+/** Adds a column to an existing table, so databases created by earlier versions keep working. */
+export function addColumnIfMissing(db: DatabaseSync, table: string, column: string, definition: string) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (!columns.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+
+interface SessionRow {
+  wallet_id: string;
+  kind: MpcSession["kind"];
+  next_round: number;
+  state: Uint8Array;
+  digest: string | null;
+  request: string | null;
+}
+
 export function sqliteMpcStore(db: DatabaseSync): MpcStore {
   db.exec(`
     CREATE TABLE IF NOT EXISTS key_shares (
@@ -21,26 +36,50 @@ export function sqliteMpcStore(db: DatabaseSync): MpcStore {
       state      BLOB NOT NULL
     );
   `);
+  addColumnIfMissing(db, "mpc_sessions", "kind", "TEXT NOT NULL DEFAULT 'keygen'");
+  addColumnIfMissing(db, "mpc_sessions", "digest", "TEXT");
+  addColumnIfMissing(db, "mpc_sessions", "request", "TEXT");
+
+  const shareRow = (walletId: string) =>
+    db.prepare("SELECT share, public_key FROM key_shares WHERE wallet_id = ?").get(walletId) as
+      | { share: Uint8Array; public_key: string }
+      | undefined;
 
   return {
-    hasShare: (walletId) => db.prepare("SELECT 1 FROM key_shares WHERE wallet_id = ?").get(walletId) !== undefined,
+    hasShare: (walletId) => shareRow(walletId) !== undefined,
+
+    getShare: (walletId) => {
+      const row = shareRow(walletId);
+      return row && new Uint8Array(row.share);
+    },
+
+    getPublicKey: (walletId) => shareRow(walletId)?.public_key,
 
     saveShare: (walletId, share, publicKey) => {
       db.prepare("INSERT INTO key_shares (wallet_id, share, public_key) VALUES (?, ?, ?)").run(walletId, share, publicKey);
     },
 
     loadSession: (id) => {
-      const row = db.prepare("SELECT wallet_id, next_round, state FROM mpc_sessions WHERE id = ?").get(id) as
-        | { wallet_id: string; next_round: number; state: Uint8Array }
-        | undefined;
-      return row && { walletId: row.wallet_id, nextRound: row.next_round, state: new Uint8Array(row.state) };
+      const row = db
+        .prepare("SELECT wallet_id, kind, next_round, state, digest, request FROM mpc_sessions WHERE id = ?")
+        .get(id) as SessionRow | undefined;
+      return (
+        row && {
+          walletId: row.wallet_id,
+          kind: row.kind,
+          nextRound: row.next_round,
+          state: new Uint8Array(row.state),
+          digest: row.digest ?? undefined,
+          request: row.request ? JSON.parse(row.request) : undefined,
+        }
+      );
     },
 
     saveSession: (id, s: MpcSession) => {
       db.prepare(
-        `INSERT INTO mpc_sessions (id, wallet_id, next_round, state) VALUES (?, ?, ?, ?)
+        `INSERT INTO mpc_sessions (id, wallet_id, kind, next_round, state, digest, request) VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET next_round = excluded.next_round, state = excluded.state`,
-      ).run(id, s.walletId, s.nextRound, s.state);
+      ).run(id, s.walletId, s.kind, s.nextRound, s.state, s.digest ?? null, s.request ? JSON.stringify(s.request) : null);
     },
 
     deleteSession: (id) => {

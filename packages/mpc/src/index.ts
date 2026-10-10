@@ -2,6 +2,7 @@
 export * from "./parties";
 export * from "./wire";
 export * from "./keygen";
+export * from "./sign";
 export * from "./coordinator";
 export * from "./client";
 export * from "./seal";

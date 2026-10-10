@@ -4,10 +4,8 @@ import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { bitcoinCompact, verifyDigest } from "@sqw/mpc";
 import { keygen, sign } from "@sqw/mpc/node";
 import { savingsSafe, spendingPocket } from "./addresses";
-import type { Utxo } from "./esplora";
+import { explainRefusal, type Utxo } from "./esplora";
 import {
-  DUST_SATS,
-  InsufficientFundsError,
   buildPocketPayment,
   finalizePocketInputs,
   maxPocketAmount,
@@ -15,6 +13,7 @@ import {
   pocketSpendVsize,
   signWithPocketKey,
 } from "./pocket";
+import { DUST_SATS, InsufficientFundsError } from "./spend";
 import { chfToSats, satsToBtc } from "./units";
 
 const [phoneShare, cosignerShare] = keygen();
@@ -85,7 +84,7 @@ test("dust change is left to the fee instead of creating an unspendable output",
 
 test("paying more than the pocket holds is refused with the maximum available", () => {
   const utxos = [utxo(60_000, true, 1), utxo(40_000, false, 2)];
-  const max = maxPocketAmount(utxos, 2);
+  const max = maxPocketAmount(pocket, utxos, 2);
   assert.equal(max, 100_000n - BigInt(pocketSpendVsize(2, 1) * 2));
   assert.throws(
     () => buildPocketPayment({ pocket, utxos, to: leo, amount: 100_000n, feeRate: 2 }),
@@ -114,4 +113,12 @@ test("signatures from the pocket key verify against the pocket key only", () => 
   const sig = secp256k1.sign(digest, pocketKey, { prehash: false });
   assert.ok(verifyDigest(sig, digest, secp256k1.getPublicKey(pocketKey, true)));
   assert.equal(verifyDigest(sig, digest, mpcKey), false);
+});
+
+test("network refusals are explained in plain language", () => {
+  assert.match(
+    explainRefusal('sendrawtransaction RPC error: {"code":-26,"message":"too-long-mempool-chain, too many unconfirmed ancestors [limit: 25]"}'),
+    /only just arrived/,
+  );
+  assert.match(explainRefusal("weird"), /refused the payment \(weird\)/);
 });

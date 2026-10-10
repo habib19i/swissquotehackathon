@@ -58,7 +58,7 @@ run(async () => {
     pocket,
     utxos: [change],
     to: savingsSafe,
-    amount: maxPocketAmount([change], feeRate),
+    amount: maxPocketAmount(pocket, [change], feeRate),
     feeRate,
   });
   sweep.psbt.signAllInputs({

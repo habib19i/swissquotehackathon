@@ -1,7 +1,7 @@
 /**
  * The phone's view of a remote key-share holder: a PartyHandle that calls the service's /mpc routes.
  */
-import type { PartyHandle } from "./coordinator";
+import type { PartyHandle, RemoteSigner } from "./coordinator";
 import { KeygenParty, type RoundInput, type RoundOutput } from "./keygen";
 import type { DklsKeyshare } from "./lib";
 import type { WireMessage } from "./wire";
@@ -24,6 +24,26 @@ export function remoteKeygenParty(baseUrl: string, partyId: number, walletId: st
       (await post<{ messages: WireMessage[] }>(`${baseUrl}/mpc/keygen`, { walletId, sessionId })).messages,
     round: (n: number, input: RoundInput) =>
       post<RoundOutput>(`${baseUrl}/mpc/keygen/${sessionId}/rounds/${n}`, input),
+  };
+}
+
+/**
+ * A remote holder asked to co-sign. `request` tells it what is being signed (e.g. a PSBT input);
+ * the holder checks it against its own rules and computes the digest itself.
+ */
+export function remoteSigner(
+  baseUrl: string,
+  partyId: number,
+  walletId: string,
+  sessionId: string,
+  request: unknown,
+): RemoteSigner {
+  const roundUrl = (n: number) => `${baseUrl}/mpc/sign/${sessionId}/rounds/${n}`;
+  return {
+    partyId,
+    start: () => post(`${baseUrl}/mpc/sign`, { walletId, sessionId, request }),
+    round: async (n, messages) => (await post<{ messages: WireMessage[] }>(roundUrl(n), { messages })).messages,
+    finish: async (messages) => (await post<{ messages: WireMessage[] }>(roundUrl(4), { messages })).messages,
   };
 }
 

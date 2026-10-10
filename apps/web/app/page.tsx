@@ -1,16 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { DEFAULT_POCKET_SIZE_CHF } from "@sqw/shared";
-import { ReceiveIcon, SendIcon, ShieldIcon } from "../components/icons";
+import { chfToSats, refillAmount } from "@sqw/bitcoin";
+import { DEFAULT_POCKET_SIZE_CHF, explorer, type WalletRecord } from "@sqw/shared";
+import { CheckIcon, ReceiveIcon, SendIcon, ShieldIcon } from "../components/icons";
 import { KeyHolders } from "../components/keyholders";
 import { Mock, Screen } from "../components/screen";
 import { RequireWallet } from "../components/wallet-context";
-import { formatBtc, formatChf, formatSatsAsChf } from "../lib/format";
+import { formatBtc, formatChf, formatSatsAsChf, shortId } from "../lib/format";
 import type { WalletProfile } from "../lib/profile";
+import { finishSetup, swissquoteRecord } from "../lib/setup";
 import { usePrice } from "../lib/use-price";
-import { loadBalances, type Balances } from "../lib/wallet-bitcoin";
+import { loadBalances, moveExcessToSavings, refillPocketNow, withShare, type Balances } from "../lib/wallet-bitcoin";
 
 export default function HomePage() {
   return <RequireWallet>{(profile) => <Home profile={profile} />}</RequireWallet>;
@@ -21,28 +23,60 @@ function greeting(): string {
   return hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 }
 
+/** Above this share of its size, the extra in the pocket is offered back to the Savings safe. */
+const POCKET_EXCESS_MARGIN = 1.2;
+
 function Home({ profile }: { profile: WalletProfile }) {
   const price = usePrice();
   const [balances, setBalances] = useState<Balances>();
+  const [record, setRecord] = useState<WalletRecord | null>();
   const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<{ text: string; txid?: string }>();
+
+  const load = useCallback(() => {
+    loadBalances(profile)
+      .then((b) => {
+        setBalances(b);
+        setError(undefined);
+      })
+      .catch(() => setError("Balances could not be loaded from the Bitcoin network. Retrying…"));
+    swissquoteRecord(profile.walletId)
+      .then((r) => setRecord(r ?? null))
+      .catch(() => setRecord(undefined));
+  }, [profile]);
 
   useEffect(() => {
-    const load = () =>
-      loadBalances(profile)
-        .then((b) => {
-          setBalances(b);
-          setError(undefined);
-        })
-        .catch(() => setError("Balances could not be loaded from the Bitcoin network. Retrying…"));
     load();
     const timer = setInterval(load, 20_000);
     return () => clearInterval(timer);
-  }, [profile]);
+  }, [load]);
+
+  /** Runs one Face ID action and reports its outcome in plain language. */
+  async function act(action: () => Promise<{ text: string; txid?: string } | undefined>) {
+    setBusy(true);
+    setDone(undefined);
+    setError(undefined);
+    try {
+      setDone(await action());
+      load();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const pocket = balances ? balances.pocket.confirmed + balances.pocket.pending : undefined;
   const savings = balances ? balances.savings.confirmed + balances.savings.pending : undefined;
   const pending = balances ? balances.pocket.pending + balances.savings.pending : 0n;
   const total = pocket !== undefined && savings !== undefined ? pocket + savings : undefined;
+  const pocketSize = price ? chfToSats(DEFAULT_POCKET_SIZE_CHF, price.btcChf) : undefined;
+  const excess =
+    pocket !== undefined && pocketSize && pocket > (pocketSize * BigInt(POCKET_EXCESS_MARGIN * 10)) / 10n
+      ? pocket - pocketSize
+      : 0n;
+  const refill = pocket !== undefined && pocketSize && savings ? refillAmount(pocket, pocketSize) : 0n;
   const firstName = profile.client.name.split(" ")[0];
 
   return (
@@ -63,7 +97,44 @@ function Home({ profile }: { profile: WalletProfile }) {
         </p>
       </section>
 
-      {error && <p className="notice error">{error}</p>}
+      {record === null && (
+        <div className="notice warn">
+          <p>Swissquote has not verified this safe yet. Finish setting it up to use your Savings safe.</p>
+          <button
+            className="button"
+            style={{ marginTop: 12 }}
+            disabled={busy}
+            onClick={() =>
+              act(async () => {
+                await withShare(profile, (share) => finishSetup(profile, share));
+                return { text: "Swissquote has verified that this safe is yours." };
+              })
+            }
+          >
+            Finish setting up with Face ID
+          </button>
+        </div>
+      )}
+      {record?.ownershipVerifiedAt && (
+        <p className="protected small">
+          <CheckIcon size={20} /> Verified by Swissquote as yours
+        </p>
+      )}
+
+      {error && <p className="notice error" role="alert">{error}</p>}
+      {done && (
+        <p className="notice ok" role="status">
+          {done.text}
+          {done.txid && (
+            <>
+              <br />
+              <a className="small" href={explorer.btcTx(done.txid)} target="_blank" rel="noreferrer">
+                View {shortId(done.txid)} on the Bitcoin network
+              </a>
+            </>
+          )}
+        </p>
+      )}
       {pending > 0n && (
         <p className="notice">
           {formatSatsAsChf(pending, price?.btcChf)} is on its way. Bitcoin payments usually arrive within 10 minutes.
@@ -93,6 +164,36 @@ function Home({ profile }: { profile: WalletProfile }) {
         </li>
       </ul>
 
+      {excess > 0n && price && (
+        <button
+          className="button secondary"
+          disabled={busy}
+          onClick={() =>
+            act(async () => {
+              const txid = await moveExcessToSavings(profile, excess);
+              return { text: `${formatSatsAsChf(excess, price.btcChf)} is moving to your Savings safe.`, txid };
+            })
+          }
+        >
+          Move {formatSatsAsChf(excess, price.btcChf)} to my Savings safe
+        </button>
+      )}
+      {refill > 0n && price && record?.ownershipVerifiedAt && (
+        <button
+          className="button secondary"
+          disabled={busy}
+          onClick={() =>
+            act(async () => {
+              const outcome = await refillPocketNow(profile, price.btcChf);
+              if (outcome && "error" in outcome) throw new Error(outcome.error);
+              return outcome && { text: `${formatSatsAsChf(outcome.amount, price.btcChf)} is moving to your Spending pocket.`, txid: outcome.txid };
+            })
+          }
+        >
+          Refill my Spending pocket
+        </button>
+      )}
+
       <div className="home-actions">
         <Link href="/send" className="button">
           <SendIcon /> Send
@@ -104,6 +205,9 @@ function Home({ profile }: { profile: WalletProfile }) {
 
       <Link href="/activity" className="button quiet">
         See all activity
+      </Link>
+      <Link href="/settings" className="button quiet">
+        Plan and settings
       </Link>
 
       <p className="small muted">

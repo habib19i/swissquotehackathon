@@ -17,6 +17,8 @@
     "@sqw/bitcoin": "workspace:*",
     "@sqw/mpc": "workspace:*",
     "@sqw/shared": "workspace:*",
+    "bitcoinjs-lib": "7.0.2",
+    "buffer": "6.0.3",
     "idb-keyval": "6.3.0",
     "next": "^16.4.0",
     "qrcode": "1.5.4",

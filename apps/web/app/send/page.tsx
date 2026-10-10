@@ -2,15 +2,22 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { InsufficientFundsError, chfToSats, type PocketPayment } from "@sqw/bitcoin";
+import { InsufficientFundsError, chfToSats } from "@sqw/bitcoin";
 import { DEMO_CONTACTS, explorer, type Contact } from "@sqw/shared";
-import { FaceIcon } from "../../components/icons";
+import { FaceIcon, ShieldIcon } from "../../components/icons";
 import { Screen } from "../../components/screen";
 import { RequireWallet } from "../../components/wallet-context";
 import { formatBtc, formatSatsAsChf, shortId } from "../../lib/format";
 import type { WalletProfile } from "../../lib/profile";
 import { usePrice } from "../../lib/use-price";
-import { pocketAvailable, preparePocketPayment, sendFromPocket } from "../../lib/wallet-bitcoin";
+import {
+  NotEnoughInOnePocketError,
+  available,
+  preparePayment,
+  sendPayment,
+  type PaymentResult,
+  type PreparedPayment,
+} from "../../lib/wallet-bitcoin";
 
 export default function SendPage() {
   return <RequireWallet>{(profile) => <Send profile={profile} />}</RequireWallet>;
@@ -19,135 +26,60 @@ export default function SendPage() {
 type Step =
   | { name: "contact" }
   | { name: "amount"; contact: Contact }
-  | { name: "confirm"; contact: Contact; payment: PocketPayment }
-  | { name: "sending"; contact: Contact; payment: PocketPayment }
-  | { name: "sent"; contact: Contact; payment: PocketPayment; txid: string };
+  | { name: "confirm"; payment: PreparedPayment }
+  | { name: "sent"; payment: PreparedPayment; result: PaymentResult };
 
 function Send({ profile }: { profile: WalletProfile }) {
   const [step, setStep] = useState<Step>({ name: "contact" });
-  const [error, setError] = useState<string>();
-  const go = (next: Step) => {
-    setError(undefined);
-    setStep(next);
-  };
 
-  if (step.name === "contact") {
-    return (
-      <Screen back={{ href: "/" }}>
-        <h1>Who do you want to pay?</h1>
-        <ul className="rows">
-          {DEMO_CONTACTS.map((c) => (
-            <li key={c.id}>
-              <button className="row" onClick={() => go({ name: "amount", contact: c })}>
-                <span className="avatar" aria-hidden="true">
-                  {c.name[0]}
-                </span>
-                <span className="row-main">
-                  <span className="row-title">{c.name}</span>
-                  <br />
-                  <span className="small muted">{c.relation}</span>
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-        <p className="small muted">To pay someone new, Swissquote first checks them for you. This comes in the next version of the prototype.</p>
-      </Screen>
-    );
+  switch (step.name) {
+    case "contact":
+      return <ContactStep onPick={(contact) => setStep({ name: "amount", contact })} />;
+    case "amount":
+      return (
+        <AmountStep
+          profile={profile}
+          contact={step.contact}
+          onBack={() => setStep({ name: "contact" })}
+          onReady={(payment) => setStep({ name: "confirm", payment })}
+        />
+      );
+    case "confirm":
+      return (
+        <ConfirmStep
+          profile={profile}
+          payment={step.payment}
+          onCancel={() => setStep({ name: "contact" })}
+          onSent={(result) => setStep({ name: "sent", payment: step.payment, result })}
+        />
+      );
+    case "sent":
+      return <SentStep payment={step.payment} result={step.result} />;
   }
-
-  if (step.name === "amount") {
-    return (
-      <AmountStep
-        profile={profile}
-        contact={step.contact}
-        onBack={() => go({ name: "contact" })}
-        onReady={(payment) => go({ name: "confirm", contact: step.contact, payment })}
-      />
-    );
-  }
-
-  if (step.name === "confirm" || step.name === "sending") {
-    const { contact, payment } = step;
-    const sending = step.name === "sending";
-    async function confirm() {
-      setError(undefined);
-      setStep({ name: "sending", contact, payment });
-      try {
-        const txid = await sendFromPocket(profile, payment);
-        setStep({ name: "sent", contact, payment, txid });
-      } catch (err) {
-        setError((err as Error).message);
-        setStep({ name: "confirm", contact, payment });
-      }
-    }
-    return (
-      <Screen
-        actions={
-          <>
-            <button className="button" onClick={confirm} disabled={sending}>
-              <FaceIcon /> {sending ? "Sending…" : "Confirm with Face ID"}
-            </button>
-            <button className="button secondary" onClick={() => go({ name: "contact" })} disabled={sending}>
-              Cancel
-            </button>
-          </>
-        }
-      >
-        <h1>Check your payment</h1>
-        <PaymentSlip contact={contact} payment={payment} />
-        <p className="small muted">Payments from your Spending pocket only need your Face ID. Swissquote does not sign them.</p>
-        {error && <p className="notice error" role="alert">{error}</p>}
-      </Screen>
-    );
-  }
-
-  return (
-    <Screen
-      actions={
-        <Link href="/" className="button">
-          Back to my safe
-        </Link>
-      }
-    >
-      <h1>Sent to {step.contact.name}</h1>
-      <PaymentSlip contact={step.contact} payment={step.payment} />
-      <p className="notice ok">
-        Your payment is on the Bitcoin network. It usually arrives within 10 minutes.
-        <br />
-        <span className="small">Reference {shortId(step.txid)}</span>
-      </p>
-      <a className="button secondary" href={explorer.btcTx(step.txid)} target="_blank" rel="noreferrer">
-        View on the Bitcoin network
-      </a>
-    </Screen>
-  );
 }
 
-function PaymentSlip({ contact, payment }: { contact: Contact; payment: PocketPayment }) {
-  const price = usePrice();
+function ContactStep({ onPick }: { onPick: (contact: Contact) => void }) {
   return (
-    <section className="slip" aria-label="Payment details">
-      <div className="slip-head">
-        <span className="muted">You send to {contact.name}</span>
-        <span className="slip-amount">{formatSatsAsChf(payment.amount, price?.btcChf)}</span>
-        <span className="small muted tabular">{formatBtc(payment.amount)}</span>
-      </div>
-      <dl className="slip-details">
-        <dt>To</dt>
-        <dd>
-          {contact.name} ({contact.relation})
-        </dd>
-        <dt>From</dt>
-        <dd>Spending pocket</dd>
-        <dt>Network fee</dt>
-        <dd>
-          {formatSatsAsChf(payment.fee, price?.btcChf)}, paid by you
-        </dd>
-        <dt>Total</dt>
-        <dd>{formatSatsAsChf(payment.amount + payment.fee, price?.btcChf)}</dd>
-      </dl>
-    </section>
+    <Screen back={{ href: "/" }}>
+      <h1>Who do you want to pay?</h1>
+      <ul className="rows">
+        {DEMO_CONTACTS.map((c) => (
+          <li key={c.id}>
+            <button className="row" onClick={() => onPick(c)}>
+              <span className="avatar" aria-hidden="true">
+                {c.name[0]}
+              </span>
+              <span className="row-main">
+                <span className="row-title">{c.name}</span>
+                <br />
+                <span className="small muted">{c.relation}</span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      <p className="small muted">To pay someone new, Swissquote first checks them for you. This comes in the next version of the prototype.</p>
+    </Screen>
   );
 }
 
@@ -165,34 +97,37 @@ function AmountStep({
   profile: WalletProfile;
   contact: Contact;
   onBack: () => void;
-  onReady: (payment: PocketPayment) => void;
+  onReady: (payment: PreparedPayment) => void;
 }) {
   const price = usePrice();
   const [input, setInput] = useState("");
-  const [available, setAvailable] = useState<bigint>();
+  const [funds, setFunds] = useState<{ pocket: bigint; savings: bigint }>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    pocketAvailable(profile)
-      .then(setAvailable)
-      .catch(() => setError("Your Spending pocket balance could not be loaded. Try again in a moment."));
+    available(profile)
+      .then(setFunds)
+      .catch(() => setError("Your balances could not be loaded. Try again in a moment."));
   }, [profile]);
 
   const chf = parseChf(input);
   const valid = chf > 0 && price !== undefined;
 
-  async function next() {
+  async function next(from?: "savings") {
     if (!price) return;
     setBusy(true);
     setError(undefined);
+    const chfOf = (sats: bigint) => formatSatsAsChf(sats, price.btcChf);
     try {
-      onReady(await preparePocketPayment(profile, contact, chfToSats(chf, price.btcChf)));
+      onReady(await preparePayment(profile, contact, chfToSats(chf, price.btcChf), from));
     } catch (err) {
       setError(
-        err instanceof InsufficientFundsError
-          ? `That is more than your Spending pocket holds (${formatSatsAsChf(err.available, price.btcChf)} available). Larger payments will go through your Savings safe with Swissquote's check.`
-          : (err as Error).message,
+        err instanceof NotEnoughInOnePocketError
+          ? `A payment comes from one pocket at a time. Your Spending pocket can pay up to ${chfOf(err.pocketMax)} and your Savings safe up to ${chfOf(err.savingsMax)}.`
+          : err instanceof InsufficientFundsError
+            ? `Your Savings safe can pay up to ${chfOf(err.available)}.`
+            : (err as Error).message,
       );
     } finally {
       setBusy(false);
@@ -203,8 +138,11 @@ function AmountStep({
     <Screen
       actions={
         <>
-          <button className="button" onClick={next} disabled={!valid || busy}>
+          <button className="button" onClick={() => next()} disabled={!valid || busy}>
             {busy ? "Preparing…" : "Continue"}
+          </button>
+          <button className="button secondary" onClick={() => next("savings")} disabled={!valid || busy}>
+            Pay from my Savings safe
           </button>
           <button className="button quiet" onClick={onBack}>
             Choose someone else
@@ -224,18 +162,161 @@ function AmountStep({
           aria-label={`Amount in Swiss francs for ${contact.name}`}
         />
       </label>
-      <p className="muted">
-        Available in your Spending pocket:{" "}
-        <strong className="tabular">{available === undefined ? "…" : formatSatsAsChf(available, price?.btcChf)}</strong>
-      </p>
       {valid && <p className="small muted tabular">About {formatBtc(chfToSats(chf, price.btcChf))}</p>}
-      {chf > 0 && price === undefined && <p className="small muted">Loading the bitcoin price…</p>}
+      <dl className="slip-details" style={{ padding: 0, border: 0 }}>
+        <dt>Spending pocket</dt>
+        <dd>{funds ? formatSatsAsChf(funds.pocket, price?.btcChf) : "…"}</dd>
+        <dt>Savings safe</dt>
+        <dd>{funds ? formatSatsAsChf(funds.savings, price?.btcChf) : "…"}</dd>
+      </dl>
+      <p className="small muted">
+        Up to your Spending pocket&rsquo;s balance, only your Face ID is needed. Larger payments come from your Savings
+        safe, after Swissquote&rsquo;s check.
+      </p>
       {error && <p className="notice error" role="alert">{error}</p>}
-      {available === 0n && (
+    </Screen>
+  );
+}
+
+function ConfirmStep({
+  profile,
+  payment,
+  onCancel,
+  onSent,
+}: {
+  profile: WalletProfile;
+  payment: PreparedPayment;
+  onCancel: () => void;
+  onSent: (result: PaymentResult) => void;
+}) {
+  const price = usePrice();
+  const [sending, setSending] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+  const [error, setError] = useState<string>();
+  const review = payment.from === "savings" ? payment.review : undefined;
+  const blocked = review?.verdict === "BLOCKED";
+  const needsConfirmation = review?.verdict === "NEEDS_CONFIRMATION";
+
+  async function confirm() {
+    if (!price) return;
+    setError(undefined);
+    setSending(true);
+    try {
+      onSent(await sendPayment(profile, payment, price.btcChf, confirmed));
+    } catch (err) {
+      setError((err as Error).message);
+      setSending(false);
+    }
+  }
+
+  return (
+    <Screen
+      actions={
+        blocked ? (
+          <Link href="/" className="button">
+            Back to my safe
+          </Link>
+        ) : (
+          <>
+            {needsConfirmation && !confirmed ? (
+              <button className="button" onClick={() => setConfirmed(true)}>
+                Yes, I want to make this payment
+              </button>
+            ) : (
+              <button className="button" onClick={confirm} disabled={sending || !price}>
+                <FaceIcon /> {sending ? "Sending…" : "Confirm with Face ID"}
+              </button>
+            )}
+            <button className="button secondary" onClick={onCancel} disabled={sending}>
+              Cancel
+            </button>
+          </>
+        )
+      }
+    >
+      <h1>{blocked ? "Payment stopped" : "Check your payment"}</h1>
+      <PaymentSlip payment={payment} />
+      {payment.from === "pocket" && (
+        <p className="small muted">Payments from your Spending pocket only need your Face ID. Swissquote does not sign them.</p>
+      )}
+      {review && (
+        <div className={`notice ${review.verdict === "APPROVE" ? "ok" : review.verdict === "BLOCKED" ? "error" : "warn"}`} role="status">
+          <p className="protected" style={{ color: "inherit" }}>
+            <ShieldIcon size={20} />
+            {review.verdict === "APPROVE" ? "Checked by Swissquote" : review.verdict === "BLOCKED" ? "Stopped by Swissquote" : "Swissquote asks you to check"}
+          </p>
+          {review.reasons.map((r) => (
+            <p key={r}>{r}</p>
+          ))}
+        </div>
+      )}
+      {error && <p className="notice error" role="alert">{error}</p>}
+    </Screen>
+  );
+}
+
+function PaymentSlip({ payment }: { payment: PreparedPayment }) {
+  const price = usePrice();
+  const { contact } = payment;
+  const { spend, feeNote } = payment.draft;
+  const swissquotePays = spend.paidBy === "swissquote";
+  return (
+    <section className="slip" aria-label="Payment details">
+      <div className="slip-head">
+        <span className="muted">You send to {contact.name}</span>
+        <span className="slip-amount">{formatSatsAsChf(spend.amount, price?.btcChf)}</span>
+        <span className="small muted tabular">{formatBtc(spend.amount)}</span>
+      </div>
+      <dl className="slip-details">
+        <dt>To</dt>
+        <dd>
+          {contact.name} ({contact.relation})
+        </dd>
+        <dt>From</dt>
+        <dd>{payment.from === "pocket" ? "Spending pocket" : "Savings safe"}</dd>
+        <dt>Network fee</dt>
+        <dd>
+          {formatSatsAsChf(spend.fee, price?.btcChf)}, paid by {swissquotePays ? "Swissquote" : "you"}
+        </dd>
+        <dt>You pay in total</dt>
+        <dd>{formatSatsAsChf(spend.amount + (swissquotePays ? 0n : spend.fee), price?.btcChf)}</dd>
+      </dl>
+      {feeNote && <p className="small muted slip-note">{feeNote}</p>}
+    </section>
+  );
+}
+
+function SentStep({ payment, result }: { payment: PreparedPayment; result: PaymentResult }) {
+  const price = usePrice();
+  const { refill } = result;
+  return (
+    <Screen
+      actions={
+        <Link href="/" className="button">
+          Back to my safe
+        </Link>
+      }
+    >
+      <h1>Sent to {payment.contact.name}</h1>
+      <PaymentSlip payment={payment} />
+      <p className="notice ok">
+        Your payment is on the Bitcoin network. It usually arrives within 10 minutes.
+        <br />
+        <a className="small" href={explorer.btcTx(result.txid)} target="_blank" rel="noreferrer">
+          View payment {shortId(result.txid)} on the Bitcoin network
+        </a>
+      </p>
+      {refill && "txid" in refill && (
         <p className="notice">
-          Your Spending pocket is empty. <Link href="/receive">Add bitcoin</Link> first.
+          Your Spending pocket was running low, so {formatSatsAsChf(refill.amount, price?.btcChf)} moved to it from your
+          Savings safe, checked by Swissquote.
+          <br />
+          <a className="small" href={explorer.btcTx(refill.txid)} target="_blank" rel="noreferrer">
+            View refill {shortId(refill.txid)}
+          </a>
         </p>
       )}
+      {refill && "error" in refill && <p className="notice">{refill.error}</p>}
     </Screen>
   );
 }

@@ -1,27 +1,24 @@
 /**
- * Wallet creation (CLAUDE.md section 8): Face ID creates the wallet passkey, then the phone,
- * Swissquote and the recovery provider generate the 2-of-3 key together. Each keeps only its share.
+ * Wallet creation (CLAUDE.md section 8): Face ID creates the wallet passkey, the phone, Swissquote and
+ * the recovery provider generate the 2-of-3 key together. Registration and the ownership proof
+ * follow in setup.ts.
  */
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { newPocketKey, savingsSafe, spendingPocket } from "@sqw/bitcoin";
-import { KeygenParty, PARTY_ID, coordinateKeygen, localKeygenParty, remoteKeygenParty } from "@sqw/mpc";
-import type { DklsLib } from "@sqw/mpc";
+import {
+  KeygenParty,
+  PARTY_ID,
+  coordinateKeygen,
+  localKeygenParty,
+  remoteKeygenParty,
+  type DklsKeyshare,
+} from "@sqw/mpc";
+import { loadDkls } from "./dkls";
 import { confirmWithFaceId, createWalletPasskey, type WalletPasskey } from "./passkey";
 import { saveProfile, type Client, type WalletProfile } from "./profile";
 import { COSIGNER_URL, RECOVERY_URL } from "./services";
 import { lockVault } from "./vault";
-
-let dkls: Promise<DklsLib> | undefined;
-
-/** Loads the browser build of DKLs23 once (the .wasm is copied to /public by scripts/copy-wasm.mjs). */
-function loadDkls(): Promise<DklsLib> {
-  dkls ??= import("@silencelaboratories/dkls-wasm-ll-web").then(async (lib) => {
-    await lib.default("/wasm/dkls.wasm");
-    return lib;
-  });
-  return dkls;
-}
 
 /** Step 1: Face ID creates the wallet passkey (and, with PRF, the secret that locks the vault). */
 export async function setUpFaceId(client: Client) {
@@ -31,13 +28,16 @@ export async function setUpFaceId(client: Client) {
   return { passkey, prfSecret };
 }
 
-/** Step 2: distributed key generation, then the phone's secrets are locked in its vault. */
+/**
+ * Step 2: distributed key generation, then the phone's secrets are locked in its vault. Returns the
+ * share too, so the ownership proof can follow without a second Face ID.
+ */
 export async function createSafe(
   client: Client,
   passkey: WalletPasskey,
   prfSecret: Uint8Array | undefined,
   onProgress: (round: number, total: number) => void,
-): Promise<WalletProfile> {
+): Promise<{ profile: WalletProfile; share: DklsKeyshare }> {
   const lib = await loadDkls();
   const walletId = crypto.randomUUID();
   const sessionId = crypto.randomUUID();
@@ -54,7 +54,8 @@ export async function createSafe(
 
   const pocketKey = newPocketKey();
   const pocketPublicKey = secp256k1.getPublicKey(pocketKey, true);
-  await lockVault({ mpcShare: phone.share().toBytes(), pocketKey }, passkey, walletId, prfSecret);
+  const share = phone.share();
+  await lockVault({ mpcShare: share.toBytes(), pocketKey }, passkey, walletId, prfSecret);
 
   const mpcKey = hexToBytes(mpcPublicKey);
   const profile: WalletProfile = {
@@ -68,5 +69,5 @@ export async function createSafe(
     createdAt: new Date().toISOString(),
   };
   await saveProfile(profile);
-  return profile;
+  return { profile, share };
 }

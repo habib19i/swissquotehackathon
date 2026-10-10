@@ -1,77 +1,61 @@
 /**
  * Contracts between the parts of the system. Every workstream codes against these.
- * The real MPC library and MockMPC must both implement `MpcParty`.
+ * The MPC protocol itself (keygen, sign, sealing) lives in @sqw/mpc.
  */
-import type {
-  FeeQuote,
-  PaymentDraft,
-  PendingChange,
-  Plan,
-  RecoveryRequest,
-  Rulebook,
-  RulebookChange,
-  ShareHolder,
-  ShieldResult,
-} from "./types";
+import type { Plan, RecoveryRequest, ShieldResult, Verdict } from "./types";
 
 // ---------------------------------------------------------------------------
-// MPC (CLAUDE.md sections 5 and 11). Same API for the real library and MockMPC.
+// What the phone asks a key holder to co-sign (the `request` of POST /mpc/sign).
+// The holder checks it against its own rules and computes the digest itself.
 // ---------------------------------------------------------------------------
 
-export type Curve = "secp256k1";
+export type BtcSpendPurpose = "savings-payment" | "pocket-refill";
 
-export interface KeygenResult {
-  walletId: string;
-  /** Compressed secp256k1 public key, hex. Used for the Bitcoin Savings safe and as the Ethereum MPC admin. */
-  publicKey: string;
-  holder: ShareHolder;
-}
-
-export interface SignRequest {
-  walletId: string;
-  /** 32-byte digest to sign, hex (Bitcoin sighash or Ethereum hash). */
-  digest: string;
-  /** The two holders taking part in this signature. */
-  parties: [ShareHolder, ShareHolder];
-  /** Why this signature is needed; services refuse unknown purposes. */
-  purpose: "savings-payment" | "pocket-refill" | "rulebook-change" | "ownership-proof";
-}
-
-export interface SignResult {
-  /** DER or compact signature, hex, depending on the chain adapter. */
-  signature: string;
-}
-
-export interface RefreshRequest {
-  walletId: string;
-  /** Holders running the refresh; recovery uses ["cosigner", "recovery-provider"]. */
-  parties: [ShareHolder, ShareHolder];
-  /** Receives the new share 1. */
-  newPhoneDeviceId: string;
-}
-
-export interface MpcParty {
-  keygen(walletId: string): Promise<KeygenResult>;
-  sign(req: SignRequest): Promise<SignResult>;
-  refresh(req: RefreshRequest): Promise<{ ok: true }>;
-}
+export type CosignRequest =
+  | {
+      kind: "btc-input";
+      purpose: BtcSpendPurpose;
+      /** Base64 PSBT of the whole transaction. */
+      psbt: string;
+      inputIndex: number;
+      /** Set when the client accepted a NEEDS_CONFIRMATION verdict on the confirmation card. */
+      clientConfirmed?: boolean;
+    }
+  | { kind: "ownership-proof" };
 
 // ---------------------------------------------------------------------------
-// Swissquote co-signer service (services/cosigner). Base URL: COSIGNER_URL.
+// Swissquote co-signer service (services/cosigner), reached at /svc/cosigner from the app.
 // ---------------------------------------------------------------------------
 
 export const COSIGNER_ROUTES = {
   health: "GET /health",
-  /** Scam shield on a payment outside the rules. Body: PaymentDraft. Returns ShieldResult. */
-  checkPayment: "POST /shield/payment",
-  /** Request a rulebook change. Body: RulebookChange. Runs the scam shield on new contacts. Returns PendingChange. */
-  requestChange: "POST /wallets/:walletId/rulebook/changes",
-  /** Cancel a pending loosening change. */
-  cancelChange: "POST /wallets/:walletId/rulebook/changes/:changeId/cancel",
+  /** Register a wallet after key generation. Body: RegisterWallet. Write-once. Returns WalletRecord. */
+  registerWallet: "POST /wallets",
+  getWallet: "GET /wallets/:walletId",
   getRulebook: "GET /wallets/:walletId/rulebook",
-  /** Fee quote for a payment given the client's plan. Body: PaymentDraft. Returns FeeQuote. */
-  feeQuote: "POST /fees/quote",
-  /** MOCK face check / KYC attestation used by recovery. Returns a signed attestation. */
+  /** Scam shield and policy check of a Bitcoin spend, before Face ID. Body: { psbt, purpose }. Returns BtcReview. */
+  reviewBtcSpend: "POST /wallets/:walletId/btc/review",
+  /** Start the ownership proof: Swissquote fixes the date of the message. Returns { issuedAt }. */
+  ownershipChallenge: "POST /wallets/:walletId/ownership/challenge",
+  /** Submit the BIP-322 signature. Body: { signature }. Swissquote verifies it and marks the safe verified. */
+  ownershipProof: "POST /wallets/:walletId/ownership/proof",
+  /** Premium: Swissquote offers one of its coins to pay the network fee. Returns FeeOffer. */
+  feeOffer: "POST /wallets/:walletId/fees/btc/offer",
+  /** Premium: Swissquote checks the final transaction, signs its fee coin and broadcasts it. Body: { offerId, psbt }. Returns { txid, psbt }. */
+  feeSign: "POST /wallets/:walletId/fees/btc/sign",
+  /** Demo: Swissquote's operational wallet (Premium fees, mock Swissquote account): address and balance. */
+  demoAccount: "GET /demo/account",
+  /** Demo: collect the mock family's test coins back into Swissquote's wallet. */
+  demoCollect: "POST /demo/collect",
+  /** MOCK "Transfer from my Swissquote account". Body: { amountChf, into: "savings" | "pocket" }. Returns { txid }. */
+  demoTransfer: "POST /wallets/:walletId/demo/transfer",
+  /** Change the plan (demo settings). Body: { plan }. */
+  setPlan: "POST /wallets/:walletId/plan",
+  /** Request a rulebook change. Body: RulebookChange. Runs the scam shield on new contacts. Returns PendingChange. (M3) */
+  requestChange: "POST /wallets/:walletId/rulebook/changes",
+  /** Cancel a pending loosening change. (M3) */
+  cancelChange: "POST /wallets/:walletId/rulebook/changes/:changeId/cancel",
+  /** MOCK face check / KYC attestation used by recovery. Returns a signed attestation. (M3) */
   faceCheck: "POST /mock/face-check",
   /** Demo switch: when offline, every route except /health and /demo/* returns 503. */
   setOffline: "POST /demo/offline",
@@ -79,12 +63,49 @@ export const COSIGNER_ROUTES = {
   alerts: "WS /alerts",
 } as const;
 
-export interface CosignerApi {
-  checkPayment(walletId: string, draft: PaymentDraft): Promise<ShieldResult>;
-  requestChange(walletId: string, change: RulebookChange): Promise<PendingChange>;
-  cancelChange(walletId: string, changeId: string): Promise<PendingChange>;
-  getRulebook(walletId: string): Promise<Rulebook>;
-  feeQuote(walletId: string, plan: Plan, draft: PaymentDraft): Promise<FeeQuote>;
+export interface RegisterWallet {
+  walletId: string;
+  clientNumber: string;
+  /** Compressed public key of the phone's Spending pocket key (hex). */
+  pocketPublicKey: string;
+  plan: Plan;
+}
+
+/** Swissquote's view of a wallet. Addresses are computed by Swissquote from the public keys. */
+export interface WalletRecord {
+  walletId: string;
+  clientNumber: string;
+  mpcPublicKey: string;
+  pocketPublicKey: string;
+  savingsAddress: string;
+  pocketAddress: string;
+  plan: Plan;
+  /** ISO timestamp of the verified BIP-322 ownership proof (Travel Rule). */
+  ownershipVerifiedAt?: string;
+}
+
+/**
+ * Premium plan: Swissquote's offer to pay the network fee with one coin of its own
+ * (POST /wallets/:walletId/fees/btc/offer). The coin is reserved for a few minutes.
+ */
+export type FeeOffer =
+  | {
+      sponsored: true;
+      offerId: string;
+      coin: { txid: string; vout: number; value: number };
+      /** Hex scriptPubKey of Swissquote's fee wallet; its change goes to `changeAddress`. */
+      output: string;
+      changeAddress: string;
+      /** sat/vB */
+      feeRate: number;
+    }
+  | { sponsored: false; reason: string };
+
+/** Swissquote's check of a Bitcoin spend: values recomputed from the network and its own price. */
+export interface BtcReview extends ShieldResult {
+  verdict: Verdict;
+  /** Network fee in CHF, recomputed by Swissquote. */
+  feeChf: number;
 }
 
 export interface Alert {

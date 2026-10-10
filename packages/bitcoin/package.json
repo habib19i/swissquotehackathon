@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./ownership": "./src/ownership.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
@@ -14,6 +15,7 @@
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0",
     "@sqw/shared": "workspace:*",
+    "bip322-js": "4.0.0",
     "bitcoinjs-lib": "7.0.2"
   },
   "devDependencies": {

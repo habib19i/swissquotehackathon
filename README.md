@@ -2,7 +2,7 @@
 
 A self-custody wallet Swissquote could launch for its clients: **their keys, their control, one step away from their Swissquote account.** Built for the Swissquote Wallet Challenge (EPFL, October 2026).
 
-> Status: M1 done (Bitcoin core on signet, see below). The full spec lives in [`CLAUDE.md`](CLAUDE.md). The README sections required by the brief (custody and threat model, architecture diagram, Travel Rule, business model, bonus topics, AI tools) are filled in by workstream 5.
+> Status: M2 done (Savings safe with Swissquote's checks, pocket refill, Premium fees, see below). The full spec lives in [`CLAUDE.md`](CLAUDE.md). The README sections required by the brief (custody and threat model, architecture diagram, Travel Rule, business model, bonus topics, AI tools) are filled in by workstream 5.
 
 ## The idea in one paragraph
 
@@ -97,6 +97,60 @@ sync it. The phone's encrypted share still lives only in that browser's storage.
 device-bound Secure Enclave / StrongBox key. Browsers without PRF fall back to a non-extractable device key,
 with Face ID gating each use; the app says so when it happens.
 
+## Services and the Savings safe (M2)
+
+**Swissquote signs the rulebook, not every payment.** Pocket payments need only the phone. Everything
+that moves the Savings safe is signed by the phone **and** a second key holder, and each holder decides
+for itself what it signs:
+
+1. The phone asks Swissquote to co-sign one input of a transaction (`POST /mpc/sign` with the PSBT).
+2. Swissquote rebuilds the transaction, takes every input's value from the Bitcoin network (never from
+   the app), recomputes CHF values at its own price, and runs its rules: coins must come from the client's
+   Savings safe, a refill must go to the client's registered pocket and not overfill it, the fee must be
+   sane, and the **scam shield** judges the recipient (`APPROVE` / `NEEDS_CONFIRMATION` / `BLOCKED`).
+3. Swissquote computes the digest itself and returns it; the phone compares it with its own and stops if
+   they differ. Only then do both run DKLs23 signing. Each pre-signature is used once.
+
+| Scam shield rule (rule-based, no AI) | Verdict |
+|---|---|
+| Approved contact, within the CHF 100 daily limit | APPROVE |
+| Approved contact, above the daily limit | NEEDS_CONFIRMATION (extra tap on the card) |
+| First-time recipient, within the limit | NEEDS_CONFIRMATION, scam warning |
+| First-time recipient, above the limit (attacker mode: CHF 5,000 to the thief) | BLOCKED |
+| Sanctioned or reported scam address (mock lists) | BLOCKED |
+| Frozen safe | BLOCKED |
+
+**Pocket refill.** After a payment leaves the Spending pocket below half of its size, the same Face ID
+check refills it from the Savings safe (phone + Swissquote), up to CHF 100.
+
+**Ownership proof (Travel Rule).** At creation, the Savings safe signs a BIP-322 message binding it to the
+client's Swissquote client number (phone + Swissquote, with `bip322-js`). Swissquote verifies it and marks
+the safe "verified": no whitelist, no screenshots. Registration is write-once, so the refill destination
+cannot be redirected later.
+
+**Plans and fees.** On the **Standard** plan the client pays the network fee from their own bitcoin. On
+**Premium**, Swissquote's fee service adds one coin of its own to the transaction: the client's coins
+cover exactly the amount, Swissquote's coin covers the fee, and both sign the same final transaction.
+Swissquote signs its coin only if it pays nothing but the fee, at most 1.5× the rate it offered, within a
+per-client daily cap (default 5,000 sats). If it cannot sponsor, the client pays and the card says why.
+
+Real signet transactions from the app:
+
+| What | Signed by | Transaction |
+|---|---|---|
+| Automatic pocket refill from the Savings safe | phone + Swissquote (MPC) | [`db910505…`](https://mempool.space/signet/tx/db910505152cd25c73ff30577b341eafada1c459f5c4066c4b253b57b9d20cc5) |
+| Payment to Sofia from the Savings safe | phone + Swissquote (MPC) | [`911728a3…`](https://mempool.space/signet/tx/911728a306379580ff63b8e8a9a654d458351effb3d46ba00943622b1478749f) |
+| Payment to Léo above the daily limit (client confirmed the extra step) | phone + Swissquote (MPC) | [`d6d6920b…`](https://mempool.space/signet/tx/d6d6920b893f410d96fa70a429adf9c25132f21303bc7b82df8edc681ccdea77) |
+| Automatic refill right after it | phone + Swissquote (MPC) | [`fd22de9c…`](https://mempool.space/signet/tx/fd22de9c82db3da7dd509440f486a68844eb96ca6217842499043b4a1ae99df2) |
+| Premium: pocket payment, network fee paid by Swissquote's coin | pocket key + Swissquote's fee coin | [`618856cf…`](https://mempool.space/signet/tx/618856cf9a2c548d4bed5a13d533ad95d86ce03686afa49a164ae48235feaabf) |
+
+**Test bitcoin for demos.** A Swissquote demo account (Mock; the same operational wallet that pays Premium
+fees) powers "Transfer from my Swissquote account" on the Receive screen: it sends from confirmed coins,
+so transfers are spendable within seconds. The demo family's wallets are mock wallets whose keys the demo
+account holds; it collects what they receive every 10 minutes, so test bitcoin keeps circulating and only
+network fees are used up. Fund it once from a signet faucet (Plan and settings shows its address and
+balance), ideally the day before a demo: faucet payouts often sit on long unconfirmed chains until a block.
+
 ## Real vs mock (so far)
 
 | Component | Status |
@@ -105,7 +159,8 @@ with Face ID gating each use; the app says so when it happens.
 | Swissquote co-signer | Mock (separate process) |
 | Recovery provider / TEE | Mock (separate process) |
 | KYC and face check | Mock |
-| Sanctions list | Mock |
+| Sanctions and known-scam lists | Mock (labelled in the app) |
+| Swissquote fee wallet (Premium) | Real signet coins; key in the co-signer's database (Mock HSM) |
 | Wallet passkey (Face ID) | Real (WebAuthn with PRF) |
 | Swissquote login | Mock (client already verified) |
 | Family contacts | Demo data (Mock), as if imported from Swissquote |

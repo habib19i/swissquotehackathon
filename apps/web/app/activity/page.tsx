@@ -7,7 +7,7 @@ import { RequireWallet } from "../../components/wallet-context";
 import { formatSatsAsChf } from "../../lib/format";
 import type { WalletProfile } from "../../lib/profile";
 import { usePrice } from "../../lib/use-price";
-import { loadActivity, type ActivityItem } from "../../lib/wallet-bitcoin";
+import { loadActivity, type ActivityItem } from "../../lib/activity";
 
 export default function ActivityPage() {
   return <RequireWallet>{(profile) => <Activity profile={profile} />}</RequireWallet>;
