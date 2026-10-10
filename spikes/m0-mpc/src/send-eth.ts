@@ -1,8 +1,17 @@
 /**
  * M0 spike step 3: send a Base Sepolia transaction signed by 2 of 3 shares. Uses phone + recovery
- * provider, i.e. the "Swissquote offline" path. Usage: pnpm send-eth   (0 ETH to itself)
+ * provider, i.e. the "Swissquote offline" path.
+ * Usage: pnpm send-eth [to] [eth]   (default: 0 ETH to itself)
  */
-import { createPublicClient, http, keccak256, serializeTransaction, type TransactionSerializableEIP1559 } from "viem";
+import {
+  createPublicClient,
+  getAddress,
+  http,
+  keccak256,
+  parseEther,
+  serializeTransaction,
+  type TransactionSerializableEIP1559,
+} from "viem";
 import { baseSepolia } from "viem/chains";
 import { hexToBytes } from "@noble/hashes/utils.js";
 import { ethereumSignature } from "@sqw/mpc";
@@ -16,6 +25,8 @@ run(async () => {
   const phone = loadShare("phone");
   const provider = loadShare("recovery-provider");
   const { ethereum: address } = mpcAddresses(phone.publicKey);
+  const to = process.argv[2] ? getAddress(process.argv[2]) : address;
+  const value = parseEther(process.argv[3] ?? "0");
 
   if ((await client.getBalance({ address })) === 0n) {
     throw new Error(`No Base Sepolia ETH at ${address} yet. Fund it from a faucet and retry.`);
@@ -26,8 +37,8 @@ run(async () => {
     type: "eip1559",
     chainId: baseSepolia.id,
     nonce: await client.getTransactionCount({ address }),
-    to: address,
-    value: 0n,
+    to,
+    value,
     gas: 21_000n,
     maxFeePerGas: fees.maxFeePerGas,
     maxPriorityFeePerGas: fees.maxPriorityFeePerGas,

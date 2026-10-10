@@ -6,6 +6,7 @@
  * without Face ID. Browsers without PRF fall back to a device key (see vault.ts), clearly reported.
  */
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
+import type { WebAuthnAssertion } from "@sqw/ethereum";
 
 export interface WalletPasskey {
   /** Hex credential id. */
@@ -82,6 +83,28 @@ export async function createWalletPasskey(client: { name: string; clientNumber: 
   };
   const secret = prf?.results?.first ? new Uint8Array(prf.results.first) : undefined;
   return { passkey, secret };
+}
+
+/**
+ * Face ID signs `challenge` with the wallet passkey: a daily USDC payment's UserOperation hash, which
+ * the client's account on Base verifies on-chain (P-256). No PRF here: the vault stays closed.
+ */
+export async function signWithPasskey(passkey: WalletPasskey, challenge: Uint8Array): Promise<WebAuthnAssertion> {
+  const assertion = (await navigator.credentials.get({
+    publicKey: {
+      challenge: challenge as Uint8Array<ArrayBuffer>,
+      allowCredentials: [{ type: "public-key", id: hexToBytes(passkey.credentialId) as Uint8Array<ArrayBuffer> }],
+      userVerification: "required",
+      timeout: 120_000,
+    },
+  })) as PublicKeyCredential | null;
+  if (!assertion) throw new Error("Face ID was cancelled");
+  const response = assertion.response as AuthenticatorAssertionResponse;
+  return {
+    authenticatorData: new Uint8Array(response.authenticatorData),
+    clientDataJSON: new Uint8Array(response.clientDataJSON),
+    signature: new Uint8Array(response.signature),
+  };
 }
 
 /**

@@ -5,12 +5,17 @@
  */
 import type { DatabaseSync } from "node:sqlite";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
+import { nonceManager } from "viem";
+import { privateKeyToAccount, type PrivateKeyAccount } from "viem/accounts";
 import { buildSpend, savingsSafe, savingsSource, type Esplora, type Utxo } from "@sqw/bitcoin";
 
 export interface HotWallet {
   address: string;
   output: Uint8Array;
   publicKey: Uint8Array;
+  /** The same key on Base: relays UserOperations, signs paymaster sponsorships, receives USDC fees. */
+  ethAccount: PrivateKeyAccount;
   sign(hash: Uint8Array): Uint8Array;
   /** Remembers a transaction this wallet broadcast: its change can be spent before it confirms. */
   recordOwn(txid: string): void;
@@ -61,6 +66,8 @@ export function hotWallet(db: DatabaseSync, net: Esplora): HotWallet {
     address: safe.address,
     output: safe.output,
     publicKey,
+    // Nonces are tracked in this process: the public RPC can lag behind our own last transaction.
+    ethAccount: privateKeyToAccount(`0x${bytesToHex(secretKey)}`, { nonceManager }),
     sign,
     recordOwn,
     spendable,

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DEMO_ATTACKER_BTC_ADDRESS, DEMO_CONTACTS, defaultRulebook } from "@sqw/shared";
+import { DEMO_ATTACKER_BTC_ADDRESS, DEMO_ATTACKER_ETH_ADDRESS, DEMO_CONTACTS, defaultRulebook } from "@sqw/shared";
 import { MOCK_KNOWN_SCAM_ADDRESSES, MOCK_SANCTIONED_ADDRESSES, screenPayment } from "./shield";
 
 const rulebook = { ...defaultRulebook(), contacts: DEMO_CONTACTS };
@@ -43,4 +43,17 @@ test("a frozen safe blocks every payment, even to family", () => {
 
 test("the verdict carries Swissquote's own CHF value", () => {
   assert.equal(screenPayment({ address: leo, valueChf: 42.5, rulebook }).valueChf, 42.5);
+});
+
+test("USDC: contacts are recognised by their Base address, whatever its letter case", () => {
+  const leoEth = DEMO_CONTACTS[0].ethAddress!;
+  assert.equal(screenPayment({ address: leoEth.toLowerCase(), valueChf: 50, rulebook }).verdict, "APPROVE");
+  assert.equal(screenPayment({ address: DEMO_ATTACKER_ETH_ADDRESS, valueChf: 5_000, rulebook }).verdict, "BLOCKED");
+});
+
+test("USDC: sanctioned and reported Base addresses are blocked (Mock lists)", () => {
+  const ethSanctioned = [...MOCK_SANCTIONED_ADDRESSES].find((a) => a.startsWith("0x"))!;
+  const ethScam = [...MOCK_KNOWN_SCAM_ADDRESSES].find((a) => a.startsWith("0x"))!;
+  assert.equal(screenPayment({ address: ethSanctioned.toUpperCase().replace("0X", "0x"), valueChf: 1, rulebook }).verdict, "BLOCKED");
+  assert.equal(screenPayment({ address: ethScam, valueChf: 1, rulebook }).verdict, "BLOCKED");
 });

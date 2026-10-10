@@ -3,7 +3,8 @@
  * 1. a new wallet passkey (Face ID), 2. the RECOVERY key, 3. Swissquote's face check (mock),
  * 4. the waiting period, during which the real client can cancel, 5. Swissquote and the provider
  * issue a new share to this phone (same key, same Savings safe; old shares are gone), 6. a new
- * Spending pocket, and the old one swept into it with the MPC key.
+ * Spending pocket, and the old one swept into it with the MPC key, 7. on Base, the account now accepts
+ * this phone's passkey instead of the lost one.
  */
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
@@ -18,6 +19,7 @@ import { presentRecoveryKey, provider } from "./provider";
 import { COSIGNER_URL, RECOVERY_URL } from "./services";
 import { lockVault } from "./vault";
 import { sweepOldPocket } from "./wallet-bitcoin";
+import { updateRulesOnBase } from "./wallet-usdc";
 
 /** Starts a recovery and asks for the recovery key. `assertion` is undefined if none was presented. */
 export async function beginRecovery(walletId: string) {
@@ -40,7 +42,16 @@ export function verifyRecovery(recoveryId: string, requestId: string, assertion:
   return provider.verifyRecovery(recoveryId, { requestId, assertion, faceCheck: attestation });
 }
 
-/** After the waiting period: the new share, the new pocket, and the old pocket swept into it. */
+export interface RecoveryResult {
+  profile: WalletProfile;
+  sweepTxid?: string;
+  sweepError?: string;
+  /** The account on Base switched to this phone's passkey (if the safe has digital dollars). */
+  baseTxHash?: string;
+  baseError?: string;
+}
+
+/** After the waiting period: the new share, the new pocket, the old pocket swept into it, the new passkey on Base. */
 export async function completeRecovery(
   client: Client,
   record: WalletRecord,
@@ -48,7 +59,7 @@ export async function completeRecovery(
   passkey: WalletPasskey,
   prfSecret: Uint8Array | undefined,
   onProgress: (round: number, total: number) => void,
-): Promise<{ profile: WalletProfile; sweepTxid?: string; sweepError?: string }> {
+): Promise<RecoveryResult> {
   const lib = await loadDkls();
   const mpcKey = hexToBytes(record.mpcPublicKey);
   const sessionId = crypto.randomUUID();
@@ -82,16 +93,24 @@ export async function completeRecovery(
   };
   await saveProfile(profile);
 
-  // Swissquote moves the refill destination to the new pocket, only for a recovery the provider completed.
-  const updated = await cosigner.recovered(record.walletId, recoveryId, profile.pocketPublicKey);
+  // Swissquote moves the refill destination to the new pocket and the passkey of the digital dollar
+  // account to the new phone's, only for a recovery the provider completed.
+  const updated = await cosigner.recovered(record.walletId, recoveryId, profile.pocketPublicKey, passkey.publicKey);
   if (updated.pocketAddress !== profile.pocketAddress) throw new Error("Swissquote recorded a different Spending pocket.");
 
+  const result: RecoveryResult = { profile };
   try {
-    const sweepTxid = await sweepOldPocket(profile, share, record.pocketPublicKey);
-    return { profile, sweepTxid };
+    result.sweepTxid = await sweepOldPocket(profile, share, record.pocketPublicKey);
   } catch (err) {
-    return { profile, sweepError: (err as Error).message };
-  } finally {
-    share.free();
+    result.sweepError = (err as Error).message;
   }
+  if (updated.ethereum) {
+    try {
+      result.baseTxHash = (await updateRulesOnBase(profile, share))?.txHash;
+    } catch (err) {
+      result.baseError = (err as Error).message;
+    }
+  }
+  share.free();
+  return result;
 }

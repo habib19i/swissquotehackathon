@@ -12,7 +12,7 @@ const RECOVERY_URL = process.env.RECOVERY_URL ?? "http://localhost:4002";
 
 const nextConfig: NextConfig = {
   // The workspace packages ship TypeScript source.
-  transpilePackages: ["@sqw/shared", "@sqw/mpc", "@sqw/bitcoin"],
+  transpilePackages: ["@sqw/shared", "@sqw/mpc", "@sqw/bitcoin", "@sqw/ethereum"],
 
   // The phone reaches both key-share holders through this origin, so the app works over https on a
   // real phone without CORS or mixed content. The proxy only forwards; shares stay in each service.

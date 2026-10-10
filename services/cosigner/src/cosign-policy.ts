@@ -4,6 +4,8 @@
  */
 import { hexToBytes } from "@noble/hashes/utils.js";
 import { address as btcAddress } from "bitcoinjs-lib";
+import { hexToBytes as hexToBytes0x } from "viem";
+import { ethOwnershipDigest, ethOwnershipMessage } from "@sqw/ethereum";
 import { balanceOf, esplora, signet, spendingPocket } from "@sqw/bitcoin";
 import { ownershipDigest, ownershipMessage } from "@sqw/bitcoin/ownership";
 import { MpcError } from "@sqw/mpc/server";
@@ -54,6 +56,15 @@ export async function reviewSpend(wallet: StoredWallet, psbt: string, purpose: B
   }
 }
 
+/** The Base account's proof message, as Swissquote dated it. */
+export function ethOwnershipMessageFor(wallet: StoredWallet): string {
+  const eth = wallet.ethereum;
+  if (!eth?.ownershipIssuedAt) throw new MpcError(403, "Start the ownership proof first.");
+  return ethOwnershipMessage(wallet.clientNumber, eth.address, eth.ownershipIssuedAt);
+}
+
+const expired = (issuedAt: string) => Date.now() - Date.parse(issuedAt) > OWNERSHIP_PROOF_TTL_MS;
+
 export function ownershipMessageFor(wallet: StoredWallet): string {
   if (!wallet.ownershipIssuedAt) throw new MpcError(403, "Start the ownership proof first.");
   return ownershipMessage(wallet.clientNumber, wallet.savingsAddress, wallet.ownershipIssuedAt);
@@ -75,10 +86,14 @@ export async function authorizeCosign(wallet: StoredWallet, request: CosignReque
 
     case "ownership-proof": {
       const message = ownershipMessageFor(wallet);
-      if (Date.now() - Date.parse(wallet.ownershipIssuedAt!) > OWNERSHIP_PROOF_TTL_MS) {
-        throw new MpcError(403, "This ownership proof has expired. Please start again.");
-      }
+      if (expired(wallet.ownershipIssuedAt!)) throw new MpcError(403, "This ownership proof has expired. Please start again.");
       return ownershipDigest(message, btcAddress.toOutputScript(wallet.savingsAddress, signet), mpcKey);
+    }
+
+    case "eth-ownership-proof": {
+      const message = ethOwnershipMessageFor(wallet);
+      if (expired(wallet.ethereum!.ownershipIssuedAt!)) throw new MpcError(403, "This ownership proof has expired. Please start again.");
+      return hexToBytes0x(ethOwnershipDigest(message));
     }
 
     default:

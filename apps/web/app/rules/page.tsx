@@ -1,14 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { PendingChange, Rulebook, RulebookChange } from "@sqw/shared";
+import { explorer, type EthStatus, type PendingChange, type Rulebook, type RulebookChange } from "@sqw/shared";
 import { Countdown, DemoModeNote } from "../../components/countdown";
 import { Screen } from "../../components/screen";
 import { RequireWallet } from "../../components/wallet-context";
 import { cosigner } from "../../lib/cosigner";
-import { formatChf } from "../../lib/format";
+import { formatChf, shortId } from "../../lib/format";
 import type { WalletProfile } from "../../lib/profile";
-import { loadRulebook, requestChange } from "../../lib/rules";
+import { loadRulebook, requestChange, type ChangeResult } from "../../lib/rules";
+import { updateRulesOnBase, usdcAccount } from "../../lib/wallet-usdc";
 
 export default function RulesPage() {
   return <RequireWallet>{(profile) => <Rules profile={profile} />}</RequireWallet>;
@@ -16,22 +17,27 @@ export default function RulesPage() {
 
 /**
  * The rulebook (screen 6). Loosening changes (a new contact, a higher limit) wait 24 hours (demo: 30 s)
- * and can be cancelled; tightening changes are instant. Swissquote enforces this, not the app.
+ * and can be cancelled; tightening changes are instant. Swissquote enforces this, not the app. Rules in
+ * force are then written to the client's account on Base, which enforces them for Face ID payments.
  */
 function Rules({ profile }: { profile: WalletProfile }) {
   const [rulebook, setRulebook] = useState<Rulebook>();
   const [pending, setPending] = useState<PendingChange[]>([]);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ ok: boolean; text: string }>();
+  const [message, setMessage] = useState<{ ok: boolean; text: string; base?: ChangeResult["base"] }>();
+  const [onBase, setOnBase] = useState<EthStatus>();
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
+  const [usdcAddress, setUsdcAddress] = useState("");
   const [editing, setEditing] = useState<"daily" | "pocket">();
   const [amount, setAmount] = useState("");
 
   const load = useCallback(async () => {
     setRulebook(await loadRulebook(profile.walletId));
     setPending((await cosigner.changes(profile.walletId).catch(() => [])).filter((c) => c.status === "pending"));
+    const hasUsdc = await usdcAccount(profile).then(() => true, () => false);
+    setOnBase(hasUsdc ? await cosigner.ethStatus(profile.walletId).catch(() => undefined) : undefined);
   }, [profile]);
 
   useEffect(() => {
@@ -42,8 +48,8 @@ function Rules({ profile }: { profile: WalletProfile }) {
     setBusy(true);
     setMessage(undefined);
     try {
-      await requestChange(profile, c);
-      setMessage({ ok: true, text: done });
+      const { base } = await requestChange(profile, c);
+      setMessage({ ok: true, text: done, base });
       setAdding(false);
       await load();
     } catch (err) {
@@ -71,6 +77,20 @@ function Rules({ profile }: { profile: WalletProfile }) {
     setAmount(String(which === "daily" ? rulebook!.dailyLimitChf : rulebook!.pocketSizeChf));
   }
 
+  async function writeOnBase() {
+    setBusy(true);
+    setMessage(undefined);
+    try {
+      const base = await updateRulesOnBase(profile);
+      setMessage({ ok: true, text: "Your rules are now written on Base.", base });
+      await load();
+    } catch (err) {
+      setMessage({ ok: false, text: (err as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!rulebook) return null;
 
   return (
@@ -80,7 +100,21 @@ function Rules({ profile }: { profile: WalletProfile }) {
         Making your rules stricter is instant. Loosening them takes 24 hours, so you can stop anything you did not ask
         for. <DemoModeNote production="24 hours, not 30 seconds," />
       </p>
-      {message && <p className={`notice ${message.ok ? "ok" : "error"}`} role="status">{message.text}</p>}
+      {message && (
+        <p className={`notice ${message.ok ? "ok" : "error"}`} role="status">
+          {message.text}
+          <BaseUpdate base={message.base} />
+        </p>
+      )}
+      {onBase && !onBase.rulesUpToDate && pending.length === 0 && (
+        <section className="notice warn">
+          <p className="row-title">New rules to write on Base</p>
+          <p>Your digital dollar account still follows your previous rules. Confirm with Face ID to bring it up to date.</p>
+          <button className="button" style={{ marginTop: 12 }} disabled={busy} onClick={writeOnBase}>
+            {busy ? "Waiting for Face ID…" : "Update with Face ID"}
+          </button>
+        </section>
+      )}
 
       {pending.map((p) => (
         <section key={p.id} className="notice warn">
@@ -132,8 +166,18 @@ function Rules({ profile }: { profile: WalletProfile }) {
           onSubmit={(e) => {
             e.preventDefault();
             const id = `${name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now().toString(36)}`;
+            const contact = {
+              id,
+              name: name.trim(),
+              ...(address.trim() && { btcAddress: address.trim() }),
+              ...(usdcAddress.trim() && { ethAddress: usdcAddress.trim() as `0x${string}` }),
+            };
+            if (!contact.btcAddress && !contact.ethAddress) {
+              setMessage({ ok: false, text: "Please give a Bitcoin or a digital dollar address." });
+              return;
+            }
             change(
-              { kind: "addContact", contact: { id, name: name.trim(), btcAddress: address.trim() } },
+              { kind: "addContact", contact },
               `Requested: ${name.trim()} becomes a contact after the waiting period, once Swissquote has checked the address.`,
             );
           }}
@@ -144,8 +188,15 @@ function Rules({ profile }: { profile: WalletProfile }) {
           </div>
           <div className="field" style={{ marginTop: 12 }}>
             <label htmlFor="contact-address">Their Bitcoin address</label>
-            <input id="contact-address" className="input" value={address} onChange={(e) => setAddress(e.target.value)} required />
+            <input id="contact-address" className="input" value={address} onChange={(e) => setAddress(e.target.value)} />
           </div>
+          <div className="field" style={{ marginTop: 12 }}>
+            <label htmlFor="contact-usdc">Their digital dollar (USDC) address</label>
+            <input id="contact-usdc" className="input" value={usdcAddress} onChange={(e) => setUsdcAddress(e.target.value)} placeholder="0x…" />
+          </div>
+          <p className="small muted" style={{ marginTop: 8 }}>
+            Give at least one.
+          </p>
           <button className="button" style={{ marginTop: 16 }} disabled={busy}>
             {busy ? "Waiting for Face ID…" : "Add with Face ID"}
           </button>
@@ -162,7 +213,7 @@ function Rules({ profile }: { profile: WalletProfile }) {
           <span className="row-main">
             <span className="row-title">Daily limit</span>
             <br />
-            <span className="small muted">Payments above it need your extra confirmation</span>
+            <span className="small muted">Face ID alone pays your contacts up to this each day; above it, Swissquote asks you to confirm</span>
           </span>
           <button className="button quiet" style={{ width: "auto" }} disabled={busy} onClick={() => startEditing("daily")}>
             {formatChf(rulebook.dailyLimitChf)}
@@ -211,5 +262,19 @@ function Rules({ profile }: { profile: WalletProfile }) {
         </button>
       )}
     </Screen>
+  );
+}
+
+/** The outcome of writing the rules on Base, under a change's message. */
+function BaseUpdate({ base }: { base?: ChangeResult["base"] }) {
+  if (!base) return null;
+  if ("error" in base) return <><br /><span className="small">Your rules on Base could not be updated yet: {base.error}</span></>;
+  return (
+    <>
+      <br />
+      <a className="small" href={explorer.baseTx(base.txHash)} target="_blank" rel="noreferrer">
+        Also written on Base: {shortId(base.txHash)}
+      </a>
+    </>
   );
 }

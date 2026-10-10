@@ -5,11 +5,23 @@
 import type { Rulebook, ShieldResult } from "@sqw/shared";
 import { formatChf } from "./format";
 
-/** MOCK sanctions list (a real deployment queries a sanctions screening provider). */
-export const MOCK_SANCTIONED_ADDRESSES = new Set(["tb1qyeh7ezv9yqg2h0ddegk5c7468vpdfucaug4v8d"]);
+/** MOCK sanctions list (a real deployment queries a sanctions screening provider). Lower case. */
+export const MOCK_SANCTIONED_ADDRESSES = new Set([
+  "tb1qyeh7ezv9yqg2h0ddegk5c7468vpdfucaug4v8d",
+  "0xcb32f140db63e5cc7a759e2ee152cfe648d5c67f",
+]);
 
-/** MOCK list of addresses reported as scams. */
-export const MOCK_KNOWN_SCAM_ADDRESSES = new Set(["tb1quxj9ersqlkrsqksh38gfjd67w3t39zd3s6xd6c"]);
+/** MOCK list of addresses reported as scams. Lower case. */
+export const MOCK_KNOWN_SCAM_ADDRESSES = new Set([
+  "tb1quxj9ersqlkrsqksh38gfjd67w3t39zd3s6xd6c",
+  "0xb942dc8df503f51452a26f5a076be99a59bd4012",
+]);
+
+/** Bitcoin (bech32) and Ethereum addresses are both case-insensitive. */
+const same = (a: string | undefined, b: string) => a?.toLowerCase() === b.toLowerCase();
+
+export const isSanctioned = (address: string) => MOCK_SANCTIONED_ADDRESSES.has(address.toLowerCase());
+export const isKnownScam = (address: string) => MOCK_KNOWN_SCAM_ADDRESSES.has(address.toLowerCase());
 
 export interface PaymentCheck {
   address: string;
@@ -29,14 +41,14 @@ export function screenPayment({ address, valueChf, rulebook }: PaymentCheck): Sh
   if (rulebook.frozen) {
     return result("BLOCKED", "Your safe is frozen. Unfreeze it before making payments.");
   }
-  if (MOCK_SANCTIONED_ADDRESSES.has(address)) {
+  if (isSanctioned(address)) {
     return result("BLOCKED", "This address is on a sanctions list (Mock list). Swissquote cannot take part in this payment.");
   }
-  if (MOCK_KNOWN_SCAM_ADDRESSES.has(address)) {
+  if (isKnownScam(address)) {
     return result("BLOCKED", "This address has been reported as a scam (Mock list). Do not send money to it.");
   }
 
-  const contact = rulebook.contacts.find((c) => c.btcAddress === address);
+  const contact = rulebook.contacts.find((c) => same(c.btcAddress, address) || same(c.ethAddress, address));
   if (!contact) {
     if (valueChf > rulebook.dailyLimitChf) {
       return result(
@@ -48,7 +60,7 @@ export function screenPayment({ address, valueChf, rulebook }: PaymentCheck): Sh
     return result(
       "NEEDS_CONFIRMATION",
       "You have never paid this address before.",
-      "Only continue if you know and trust the person you are paying. Scammers often ask for bitcoin.",
+      "Only continue if you know and trust the person you are paying. Scammers often ask for payments in crypto.",
     );
   }
   if (valueChf > rulebook.dailyLimitChf) {

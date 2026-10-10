@@ -1,69 +1,131 @@
 /**
- * The activity feed: every transaction touching the client's two addresses, in plain language.
+ * The activity feed: every transaction touching the client's safe, on both networks, in plain language.
+ * Bitcoin from the signet explorer's API (esplora), digital dollars from Blockscout's API for Base Sepolia.
  */
 import { esplora, type EsploraTx } from "@sqw/bitcoin";
-import { DEMO_CONTACTS } from "@sqw/shared";
+import { DEPLOYMENTS, USDC } from "@sqw/ethereum";
+import { explorer, type Contact } from "@sqw/shared";
 import type { WalletProfile } from "./profile";
-import { ESPLORA_URL } from "./services";
+import { loadRulebook } from "./rules";
+import { BLOCKSCOUT_URL, ESPLORA_URL } from "./services";
+import { usdcAccount } from "./wallet-usdc";
 
 const net = esplora(ESPLORA_URL);
 
 export interface ActivityItem {
-  txid: string;
+  id: string;
+  asset: "BTC" | "USDC";
   /** Plain-language description, e.g. "To Léo" or "Received in your Spending pocket". */
   label: string;
-  /** Net effect on the client's safe in satoshis (negative when money left it). */
+  /** Net effect on the client's safe, in satoshis or USDC units (negative when money left it). */
   amount: bigint;
-  /** Satoshis the client paid to the network (zero when Swissquote paid on the Premium plan). */
+  /** What the client paid for the network fee (zero when Swissquote paid on the Premium plan). */
   fee: bigint;
   confirmed: boolean;
   time?: Date;
+  link: string;
 }
 
-function nameOf(address: string | undefined, profile: WalletProfile): string | undefined {
-  if (address === profile.pocketAddress) return "your Spending pocket";
-  if (address === profile.savingsAddress) return "your Savings safe";
-  return DEMO_CONTACTS.find((c) => c.btcAddress === address)?.name;
-}
+const same = (a: string | undefined, b: string | undefined) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
 
-function describe(tx: EsploraTx, profile: WalletProfile): ActivityItem {
+// ---------------------------------------------------------------- bitcoin
+
+function describeBtc(tx: EsploraTx, profile: WalletProfile, contacts: Contact[]): ActivityItem {
   const mine = (a?: string) => a === profile.pocketAddress || a === profile.savingsAddress;
-  const known = (a?: string) => mine(a) || DEMO_CONTACTS.some((c) => c.btcAddress === a);
+  const contact = (a?: string) => contacts.find((c) => c.btcAddress === a);
+  const nameOf = (a?: string) =>
+    a === profile.pocketAddress ? "your Spending pocket" : a === profile.savingsAddress ? "your Savings safe" : contact(a)?.name;
   const spent = tx.vin.reduce((s, i) => s + (i.prevout && mine(i.prevout.scriptpubkey_address) ? BigInt(i.prevout.value) : 0n), 0n);
   const received = tx.vout.reduce((s, o) => s + (mine(o.scriptpubkey_address) ? BigInt(o.value) : 0n), 0n);
-  const sentOut = tx.vout.filter((o) => known(o.scriptpubkey_address) && !mine(o.scriptpubkey_address));
-  const paidOut = sentOut.reduce((s, o) => s + BigInt(o.value), 0n);
+  const paidOut = tx.vout.filter((o) => contact(o.scriptpubkey_address)).reduce((s, o) => s + BigInt(o.value), 0n);
 
   let label: string;
   if (spent === 0n) {
-    const into = tx.vout.find((o) => mine(o.scriptpubkey_address))?.scriptpubkey_address;
-    label = `Received in ${nameOf(into, profile)}`;
+    label = `Received in ${nameOf(tx.vout.find((o) => mine(o.scriptpubkey_address))?.scriptpubkey_address)}`;
   } else {
     const fromPocket = tx.vin.some((i) => i.prevout?.scriptpubkey_address === profile.pocketAddress);
-    const external = tx.vout.find((o) => !mine(o.scriptpubkey_address) && known(o.scriptpubkey_address));
-    label = external
-      ? `To ${nameOf(external.scriptpubkey_address, profile)}`
-      : fromPocket
-        ? "Moved to your Savings safe"
-        : "Spending pocket refilled";
+    const external = tx.vout.find((o) => contact(o.scriptpubkey_address));
+    label = external ? `To ${nameOf(external.scriptpubkey_address)}` : fromPocket ? "Moved to your Savings safe" : "Spending pocket refilled";
   }
 
   // What the client paid beyond the amounts sent and kept: the fee, unless Swissquote covered it.
   const clientFee = spent > 0n ? spent - received - paidOut : 0n;
   return {
-    txid: tx.txid,
+    id: tx.txid,
+    asset: "BTC",
     label,
     amount: received - spent,
     fee: clientFee > 0n ? clientFee : 0n,
     confirmed: tx.status.confirmed,
     time: tx.status.block_time ? new Date(tx.status.block_time * 1000) : undefined,
+    link: explorer.btcTx(tx.txid),
   };
 }
 
-export async function loadActivity(profile: WalletProfile): Promise<ActivityItem[]> {
+async function btcActivity(profile: WalletProfile, contacts: Contact[]): Promise<ActivityItem[]> {
   const lists = await Promise.all([net.transactions(profile.pocketAddress), net.transactions(profile.savingsAddress)]);
   const byId = new Map(lists.flat().map((tx) => [tx.txid, tx]));
-  return [...byId.values()]
-    .map((tx) => describe(tx, profile))
-    .sort((a, b) => Number(a.confirmed) - Number(b.confirmed) || (b.time?.getTime() ?? 0) - (a.time?.getTime() ?? 0));
+  return [...byId.values()].map((tx) => describeBtc(tx, profile, contacts));
+}
+
+// ---------------------------------------------------------------- digital dollars
+
+interface TokenTransfer {
+  transaction_hash: string;
+  timestamp: string;
+  from: { hash: string };
+  to: { hash: string };
+  total: { value: string };
+  token: { address_hash: string };
+}
+
+async function usdcActivity(profile: WalletProfile, contacts: Contact[]): Promise<ActivityItem[]> {
+  const account = (await usdcAccount(profile)).address;
+  const res = await fetch(`${BLOCKSCOUT_URL}/api/v2/addresses/${account}/token-transfers?type=ERC-20&token=${USDC.address}`);
+  if (!res.ok) throw new Error(`Blockscout answered ${res.status}`);
+  const { items } = (await res.json()) as { items: TokenTransfer[] };
+
+  const byTx = new Map<string, TokenTransfer[]>();
+  for (const t of items.filter((t) => same(t.token.address_hash, USDC.address))) {
+    byTx.set(t.transaction_hash, [...(byTx.get(t.transaction_hash) ?? []), t]);
+  }
+  return [...byTx.entries()].map(([hash, transfers]) => {
+    const value = (t: TokenTransfer) => BigInt(t.total.value);
+    const incoming = transfers.filter((t) => same(t.to.hash, account));
+    const fee = transfers.filter((t) => same(t.from.hash, account) && same(t.to.hash, DEPLOYMENTS.swissquote));
+    const paid = transfers.filter((t) => same(t.from.hash, account) && !fee.includes(t));
+    const received = incoming.reduce((s, t) => s + value(t), 0n);
+    const sent = paid.reduce((s, t) => s + value(t), 0n);
+    const feePaid = fee.reduce((s, t) => s + value(t), 0n);
+
+    const to = paid[0] && contacts.find((c) => same(c.ethAddress, paid[0].to.hash));
+    const from = incoming[0]?.from.hash;
+    const label = paid.length
+      ? `To ${to?.name ?? "someone outside your contacts"}`
+      : same(from, DEPLOYMENTS.swissquote)
+        ? "From your Swissquote account"
+        : "Received in your digital dollars";
+    return {
+      id: hash,
+      asset: "USDC" as const,
+      label,
+      amount: received - sent - feePaid,
+      fee: feePaid,
+      confirmed: true,
+      time: new Date(transfers[0].timestamp),
+      link: explorer.baseTx(hash),
+    };
+  });
+}
+
+/** Both networks, newest first. A network that cannot be reached is reported, not hidden. */
+export async function loadActivity(profile: WalletProfile): Promise<{ items: ActivityItem[]; unavailable: string[] }> {
+  const { contacts } = await loadRulebook(profile.walletId);
+  const [btc, usdc] = await Promise.allSettled([btcActivity(profile, contacts), usdcActivity(profile, contacts)]);
+  const unavailable = [btc.status === "rejected" && "Bitcoin", usdc.status === "rejected" && "digital dollar"].filter(Boolean) as string[];
+  const items = [...(btc.status === "fulfilled" ? btc.value : []), ...(usdc.status === "fulfilled" ? usdc.value : [])];
+  return {
+    items: items.sort((a, b) => Number(a.confirmed) - Number(b.confirmed) || (b.time?.getTime() ?? 0) - (a.time?.getTime() ?? 0)),
+    unavailable,
+  };
 }

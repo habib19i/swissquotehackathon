@@ -5,6 +5,8 @@
  */
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
+import { privateKeyToAccount } from "viem/accounts";
 import { buildSpend, chfToSats, maxSpendable, savingsSafe, savingsSource, type Esplora } from "@sqw/bitcoin";
 import { DEMO_CONTACTS, DEMO_FAMILY_KEY_LABEL } from "@sqw/shared";
 import { PolicyError } from "./bitcoin-policy";
@@ -17,6 +19,9 @@ export const MAX_TRANSFER_CHF = 200;
 export function familyKey(contactId: string): Uint8Array {
   return sha256(new TextEncoder().encode(`${DEMO_FAMILY_KEY_LABEL}${contactId}`));
 }
+
+/** The same family member's wallet on Base (USDC). */
+export const familyEthAccount = (contactId: string) => privateKeyToAccount(`0x${bytesToHex(familyKey(contactId))}`);
 
 export function familyWallet(contactId: string) {
   const secretKey = familyKey(contactId);

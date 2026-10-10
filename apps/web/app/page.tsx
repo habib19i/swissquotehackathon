@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { chfToSats, refillAmount } from "@sqw/bitcoin";
-import { DEFAULT_POCKET_SIZE_CHF, explorer, type Alert, type WalletRecord } from "@sqw/shared";
+import { chfToSats, refillAmount, satsToChf } from "@sqw/bitcoin";
+import { chfForUsdc, formatUsdc } from "@sqw/ethereum";
+import { DEFAULT_POCKET_SIZE_CHF, explorer, type Alert, type EthStatus, type WalletRecord } from "@sqw/shared";
 import { CheckIcon, ReceiveIcon, SendIcon, ShieldIcon } from "../components/icons";
 import { KeyHolders } from "../components/keyholders";
 import { Mock, Screen } from "../components/screen";
@@ -12,13 +13,18 @@ import { cosigner, swissquoteOnline } from "../lib/cosigner";
 import { formatBtc, formatChf, formatSatsAsChf, shortId } from "../lib/format";
 import { hasRecoveryKey } from "../lib/recovery-key";
 import type { WalletProfile } from "../lib/profile";
+import { proveUsdcOwnership } from "../lib/ownership";
 import { finishSetup, swissquoteRecord } from "../lib/setup";
 import { usePrice } from "../lib/use-price";
 import { loadBalances, moveExcessToSavings, refillPocketNow, withShare, type Balances } from "../lib/wallet-bitcoin";
+import { loadUsdcBalance, updateRulesOnBase } from "../lib/wallet-usdc";
 
 export default function HomePage() {
   return <RequireWallet>{(profile) => <Home profile={profile} />}</RequireWallet>;
 }
+
+/** The outcome of a Face ID action, with its transaction on either network. */
+type Done = { text: string; txid?: string; baseTx?: string };
 
 function greeting(): string {
   const hour = new Date().getHours();
@@ -34,7 +40,10 @@ function Home({ profile }: { profile: WalletProfile }) {
   const [record, setRecord] = useState<WalletRecord | null>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ text: string; txid?: string }>();
+  const [done, setDone] = useState<Done>();
+  /** USDC units; null when digital dollars are not available on this phone. */
+  const [usdc, setUsdc] = useState<bigint | null>();
+  const [onBase, setOnBase] = useState<EthStatus>();
   const [online, setOnline] = useState(true);
   const [recoveryKey, setRecoveryKey] = useState<boolean>();
   const [urgent, setUrgent] = useState<Alert>();
@@ -49,6 +58,12 @@ function Home({ profile }: { profile: WalletProfile }) {
     swissquoteRecord(profile.walletId)
       .then((r) => setRecord(r ?? null))
       .catch(() => setRecord(undefined));
+    loadUsdcBalance(profile)
+      .then((units) => {
+        setUsdc(units);
+        return cosigner.ethStatus(profile.walletId).then(setOnBase);
+      })
+      .catch(() => setUsdc((current) => current ?? null));
     swissquoteOnline().then(setOnline);
     hasRecoveryKey(profile.walletId).then(setRecoveryKey);
     // The latest alert the client may need to act on: a change on hold, or a recovery under way.
@@ -73,7 +88,7 @@ function Home({ profile }: { profile: WalletProfile }) {
   }, [load]);
 
   /** Runs one Face ID action and reports its outcome in plain language. */
-  async function act(action: () => Promise<{ text: string; txid?: string } | undefined>) {
+  async function act(action: () => Promise<Done | undefined>) {
     setBusy(true);
     setDone(undefined);
     setError(undefined);
@@ -91,6 +106,9 @@ function Home({ profile }: { profile: WalletProfile }) {
   const savings = balances ? balances.savings.confirmed + balances.savings.pending : undefined;
   const pending = balances ? balances.pocket.pending + balances.savings.pending : 0n;
   const total = pocket !== undefined && savings !== undefined ? pocket + savings : undefined;
+  const usdcChf = usdc && price ? chfForUsdc(usdc, price.usdcChf) : 0;
+  const totalChf = total !== undefined && price ? satsToChf(total, price.btcChf) + usdcChf : undefined;
+  const baseBehind = onBase && (!onBase.rulesUpToDate || !onBase.passkeyUpToDate);
   const pocketSize = price ? chfToSats(DEFAULT_POCKET_SIZE_CHF, price.btcChf) : undefined;
   const excess =
     pocket !== undefined && pocketSize && pocket > (pocketSize * BigInt(POCKET_EXCESS_MARGIN * 10)) / 10n
@@ -108,8 +126,13 @@ function Home({ profile }: { profile: WalletProfile }) {
       <section className="safe-door" aria-label="Your safe">
         <div>
           <p className="caption">Your safe</p>
-          <p className="total">{total === undefined ? "…" : formatSatsAsChf(total, price?.btcChf)}</p>
-          {total !== undefined && <p className="caption tabular">{formatBtc(total)}</p>}
+          <p className="total">{totalChf === undefined ? "…" : formatChf(totalChf)}</p>
+          {total !== undefined && (
+            <p className="caption tabular">
+              {formatBtc(total)}
+              {usdc ? ` · ${formatUsdc(usdc)}` : ""}
+            </p>
+          )}
         </div>
         <KeyHolders ready={[true, true, true]} />
         <p className="caption" style={{ display: "flex", gap: 8, alignItems: "center", color: "#9fe0c2" }}>
@@ -120,7 +143,8 @@ function Home({ profile }: { profile: WalletProfile }) {
       {!online && (
         <p className="notice warn" role="status">
           Swissquote is offline. Your Spending pocket works as usual. Larger payments from your Savings safe use your
-          recovery key and the independent safe-keeper instead.
+          recovery key and the independent safe-keeper instead. Digital dollar payments wait until Swissquote is back:
+          in this prototype, Swissquote relays them to the network.
         </p>
       )}
       {urgent && (
@@ -155,6 +179,43 @@ function Home({ profile }: { profile: WalletProfile }) {
           </button>
         </div>
       )}
+      {baseBehind && online && (
+        <div className="notice warn">
+          <p className="row-title">Your digital dollars need your new rules</p>
+          <p>Your account on Base still follows your previous rules or Face ID. Confirm to bring it up to date.</p>
+          <button
+            className="button"
+            style={{ marginTop: 12 }}
+            disabled={busy}
+            onClick={() =>
+              act(async () => {
+                const sent = await updateRulesOnBase(profile);
+                return { text: "Your digital dollar account now follows your rules.", baseTx: sent?.txHash };
+              })
+            }
+          >
+            Update with Face ID
+          </button>
+        </div>
+      )}
+      {record?.ownershipVerifiedAt && record.ethereum && !record.ethereum.ownershipVerifiedAt && online && (
+        <div className="notice">
+          <p>Swissquote has not verified your digital dollar account yet. It takes one Face ID.</p>
+          <button
+            className="button secondary"
+            style={{ marginTop: 12 }}
+            disabled={busy}
+            onClick={() =>
+              act(async () => {
+                await withShare(profile, (share) => proveUsdcOwnership(profile, share));
+                return { text: "Swissquote has verified that your digital dollar account is yours." };
+              })
+            }
+          >
+            Verify with Face ID
+          </button>
+        </div>
+      )}
       {record?.ownershipVerifiedAt && (
         <p className="protected small">
           <CheckIcon size={20} /> Verified by Swissquote as yours
@@ -170,6 +231,14 @@ function Home({ profile }: { profile: WalletProfile }) {
               <br />
               <a className="small" href={explorer.btcTx(done.txid)} target="_blank" rel="noreferrer">
                 View {shortId(done.txid)} on the Bitcoin network
+              </a>
+            </>
+          )}
+          {done.baseTx && (
+            <>
+              <br />
+              <a className="small" href={explorer.baseTx(done.baseTx)} target="_blank" rel="noreferrer">
+                View {shortId(done.baseTx)} on Base
               </a>
             </>
           )}
@@ -199,8 +268,11 @@ function Home({ profile }: { profile: WalletProfile }) {
         <li className="row">
           <div className="row-main">
             <p className="row-title">Digital dollars</p>
-            <p className="small muted">USDC, coming soon</p>
+            <p className="small muted">
+              {usdc === null ? "Not available on this phone" : "USDC. Face ID pays your contacts within your daily limit"}
+            </p>
           </div>
+          <p className="row-amount">{usdc === undefined ? "…" : usdc === null ? "–" : formatChf(usdcChf)}</p>
         </li>
       </ul>
 
@@ -260,8 +332,8 @@ function Home({ profile }: { profile: WalletProfile }) {
       </Link>
 
       <p className="small muted">
-        Test bitcoin on the Bitcoin test network, shown at the {price?.mock ? "fixed demo" : "live"} price for
-        illustration{price?.mock && <> <Mock /></>}.
+        Test bitcoin on the Bitcoin test network and test USDC on Base Sepolia, shown at the{" "}
+        {price?.mock ? "fixed demo" : "live"} price for illustration{price?.mock && <> <Mock /></>}.
       </p>
     </Screen>
   );

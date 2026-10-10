@@ -8,6 +8,12 @@ import type {
   BtcReview,
   BtcSpendPurpose,
   CosignRequest,
+  EthAccountRecord,
+  EthFeeQuote,
+  EthPrepareRequest,
+  EthPrepared,
+  EthSent,
+  EthStatus,
   FaceCheckAttestation,
   FeeOffer,
   PendingChange,
@@ -51,18 +57,43 @@ export const cosigner = {
   /** MOCK face check: the app simulates the liveness result; Swissquote signs it. */
   faceCheck: (walletId: string, recoveryId: string, simulate: FaceCheckAttestation["result"]) =>
     call<FaceCheckAttestation>("/mock/face-check", { walletId, recoveryId, simulate }),
-  recovered: (walletId: string, recoveryId: string, pocketPublicKey: string) =>
-    call<WalletRecord>(`/wallets/${walletId}/recovered`, { recoveryId, pocketPublicKey }),
+  /** After a completed recovery: the new phone's Spending pocket and wallet passkey replace the old ones. */
+  recovered: (walletId: string, recoveryId: string, pocketPublicKey: string, passkeySpki?: string) =>
+    call<WalletRecord>(`/wallets/${walletId}/recovered`, { recoveryId, pocketPublicKey, passkeySpki }),
 
   alerts: (walletId: string) => call<Alert[]>(`/wallets/${walletId}/alerts`),
+
+  /** USDC on Base: Swissquote computes the account's address from the MPC key and the passkey. */
+  registerEthereum: (walletId: string, passkeySpki: string) => call<EthAccountRecord>(`/wallets/${walletId}/ethereum`, { passkeySpki }),
+  ethOwnershipChallenge: (walletId: string) => call<{ issuedAt: string }>(`/wallets/${walletId}/ethereum/ownership/challenge`, {}),
+  ethOwnershipProof: (walletId: string, signature: string) =>
+    call<EthAccountRecord>(`/wallets/${walletId}/ethereum/ownership/proof`, { signature }),
+  ethStatus: (walletId: string) => call<EthStatus>(`/wallets/${walletId}/ethereum/status`),
+  ethFee: (walletId: string) => call<EthFeeQuote>(`/wallets/${walletId}/ethereum/fee`),
+  ethPrepare: (walletId: string, req: EthPrepareRequest) => call<EthPrepared>(`/wallets/${walletId}/ethereum/ops/prepare`, req),
+  ethSend: (walletId: string, userOp: Record<string, string>) => call<EthSent>(`/wallets/${walletId}/ethereum/ops/send`, { userOp }),
+  /** Scam shield on an intended USDC payment. `amount`: USDC units. */
+  shieldUsdc: (walletId: string, to: string, amount: bigint) =>
+    call<ShieldResult>(`/wallets/${walletId}/shield/usdc`, { to, amount: String(amount) }),
 
   feeOffer: (walletId: string) => call<FeeOffer>(`/wallets/${walletId}/fees/btc/offer`, {}),
   feeSignAndBroadcast: (walletId: string, offerId: string, psbt: string) =>
     call<{ txid: string; psbt: string }>(`/wallets/${walletId}/fees/btc/sign`, { offerId, psbt }),
-  demoAccount: () => call<{ address: string; ready: number; waiting: number; dailyFeeCapSats: number }>("/demo/account"),
-  demoCollect: () => call<{ txids: string[] }>("/demo/collect", {}),
+  demoAccount: () =>
+    call<{
+      address: string;
+      ready: number;
+      waiting: number;
+      dailyFeeCapSats: number;
+      /** Amounts in wei and USDC units, as decimal strings. */
+      base?: { address: string; eth: string; usdc: string; paymasterDeposit: string };
+    }>("/demo/account"),
+  demoCollect: () => call<{ txids: string[]; usdcTxs: string[] }>("/demo/collect", {}),
   demoTransfer: async (walletId: string, amountChf: number, into: "savings" | "pocket") =>
     (await call<{ txid: string }>(`/wallets/${walletId}/demo/transfer`, { amountChf, into })).txid,
+  /** MOCK "Transfer from my Swissquote account", in USDC. Returns the Base transaction hash. */
+  demoTransferUsdc: async (walletId: string, amountChf: number) =>
+    (await call<{ txHash: string }>(`/wallets/${walletId}/demo/transfer`, { amountChf, asset: "USDC" })).txHash,
 };
 
 /** True when Swissquote's co-signer answers and is not switched off (demo). */

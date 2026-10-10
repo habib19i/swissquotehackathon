@@ -2,7 +2,7 @@
 
 A self-custody wallet Swissquote could launch for its clients: **their keys, their control, one step away from their Swissquote account.** Built for the Swissquote Wallet Challenge (EPFL, October 2026).
 
-> Status: M3 done: the core story works end to end on signet (create, pay, lose the phone, recover). See below. The full spec lives in [`CLAUDE.md`](CLAUDE.md). The README sections required by the brief (custody and threat model, architecture diagram, Travel Rule, business model, bonus topics, AI tools) are filled in by workstream 5.
+> Status: M3 done: the core story works end to end on signet (create, pay, lose the phone, recover). M4 done: digital dollars (USDC on Base Sepolia) in the same safe, with the rulebook enforced on-chain. See below. The full spec lives in [`CLAUDE.md`](CLAUDE.md). The README sections required by the brief (custody and threat model, architecture diagram, Travel Rule, business model, bonus topics, AI tools) are filled in by workstream 5.
 
 ## The idea in one paragraph
 
@@ -15,10 +15,11 @@ The client's key is split into three MPC shares: one on their phone (unlocked by
 | `apps/web` | Next.js mobile-first web app | Workstream 3 (App & UX) |
 | `services/cosigner` | Swissquote co-signer (**mock**): MPC share 2, scam shield, rulebook delays, fees | Workstream 2 |
 | `services/recovery-provider` | Independent recovery provider (**mock**, TEE simulated): MPC share 3, recovery | Workstream 4 |
-| `contracts` | Foundry project: rulebook validation module (Base Sepolia) | Workstream 4 |
+| `contracts` | Foundry project: the client's rulebook smart account, its factory and Swissquote's paymaster (Base Sepolia) | Workstream 4 |
 | `packages/shared` | Types, service contracts, Merkle/rulebook helpers | Everyone |
 | `packages/mpc` | 2-of-3 threshold ECDSA (DKLs23): keygen, sign, refresh, lost-share recovery; networked protocol and service routes | Everyone |
 | `packages/bitcoin` | Savings safe and Spending pocket addresses, pocket payments, signet API client | Workstream 1 |
+| `packages/ethereum` | Base Sepolia: account settings and address, UserOperations (EntryPoint v0.9), call encoding, passkey and MPC signature formats, USDC | Workstream 4 |
 | `spikes/m0-mpc` | M0 spike and checks: real signet and Base Sepolia transactions signed by the MPC key | — |
 | `docs/prompts` | Claude Code prompts and the approved spec elements | Everyone |
 
@@ -31,6 +32,7 @@ cp .env.example .env
 pnpm install
 pnpm dev        # starts the web app (3000), co-signer (4001) and recovery provider (4002)
 pnpm test
+pnpm test:contracts   # Solidity tests; needs Foundry (https://getfoundry.sh) and `pnpm --filter @sqw/contracts setup` once
 ```
 
 Open http://localhost:3000 in Chrome, Edge or Safari. Face ID uses passkeys (WebAuthn), which need
@@ -191,10 +193,99 @@ Real signet transactions:
 | Old pocket swept into the new phone's pocket after recovery | new phone + Swissquote (MPC branch) | [`cb993fb6…`](https://mempool.space/signet/tx/cb993fb65b114874a4d250e7967dc198884971aeda86db554d1598b86df39b23) |
 | Savings payment while Swissquote was offline | phone + recovery provider, approved with the recovery key | [`0d4357ab…`](https://mempool.space/signet/tx/0d4357ab57b22ce8763140415dae2f98b4203747f0b98d0aa096a8452a4c1dca) |
 
-**Known limits of the prototype.** Recovery attempts that are started but never verified stay open (no expiry
-yet). If a service failed in the very last round of a recovery while the other had already replaced its share,
+**Known limits of the prototype.** Recovery attempts that are started but never verified expire after 10
+minutes. If a service failed in the very last round of a recovery while the other had already replaced its share,
 the shares would disagree and the recovery would need to be run again; production would make the final round
 two-phase. Alerts reach the app and a mock e-banking page by polling; real channels (push, SMS, email) are mocked.
+
+## Digital dollars on Base (M4)
+
+The same 2-of-3 MPC key that holds the bitcoin also controls a **USDC account on Base Sepolia**, shown in the
+app as "Digital dollars". The account is a smart account ([`contracts/src/RulebookAccount.sol`](contracts/src/RulebookAccount.sol),
+OpenZeppelin Contracts 5.6 `Account` + ERC-7821 batches, ERC-4337 EntryPoint v0.9) with two keys:
+
+| Key | What it may sign | Checked on-chain by |
+|---|---|---|
+| Wallet passkey (Face ID, P-256) | only `payContact`: an approved contact, within the daily limit, not while frozen | WebAuthn + P-256 (RIP-7212 precompile), Merkle proof against the contacts root, a 24 h spending window |
+| 2-of-3 MPC key (secp256k1) | anything: the rulebook (`setRulebook`, `setFrozen`, `revokeContact`), a new passkey after recovery, any transfer | ECDSA against the MPC key's address |
+
+**Swissquote signs the rulebook, not every payment, here too.** A daily payment is a UserOperation signed by
+the passkey alone; the account itself verifies the recipient's Merkle proof and the limit, so neither the app
+nor Swissquote can let a stolen phone pay a stranger. Only the Merkle root of the contacts is stored on-chain
+(OpenZeppelin `StandardMerkleTree`, leaf `abi.encode(address)`). The network fee, when the client pays it,
+counts towards the daily limit too.
+
+**Rulebook changes reach Base after their waiting period.** As for Bitcoin, Swissquote's service enforces the
+delays. Once a change is in force, the phone and Swissquote sign one MPC operation that writes the new root,
+limit and freeze state: tightening changes at once, with the same Face ID; loosening ones after the waiting
+period (the app asks once). Swissquote co-signs only the rules in force, so a thief cannot write himself into
+the contacts early. The phone checks that the root matches the contacts it shows. The CHF limit is set in
+USDC at the day's rate (a 2% drift is not a change).
+
+**Recovery moves Face ID too.** After a recovery, the new phone's passkey replaces the lost one on-chain
+(`setPasskey`, MPC key, only to the passkey Swissquote recorded for the completed recovery). The old Face ID
+stops working on Base at that moment.
+
+**Ownership proof (Travel Rule).** As with BIP-322 for the Savings safe, the MPC key signs a message binding the
+Base account to the client's Swissquote client number (EIP-191). Swissquote checks it the way the account
+itself answers, `isValidSignature` (ERC-1271), or, before the account's first operation, the way it will answer
+once deployed (ERC-6492, verified with viem). It runs during setup with the same unlocked share; existing safes
+are asked once on the home screen.
+
+**Fees: Swissquote runs the bundler and the paymaster.** Swissquote's service fills in the gas and nonce,
+signs a sponsorship for [`SwissquotePaymaster`](contracts/src/SwissquotePaymaster.sol) (verifying-paymaster
+pattern: the signature covers the whole operation and a 10-minute window), and submits the signed operation
+to the EntryPoint from its own wallet. The phone checks that the prepared operation is exactly the one it
+asked for before any Face ID. **Premium**: Swissquote pays the gas (cap: 50 operations per safe per day).
+**Standard**: Swissquote sponsors only operations that pay it the fee in USDC (at least USDC 0.01); the client
+never needs ETH. Rule updates and passkey changes are always sponsored.
+
+**Scam shield** (same rules as Bitcoin, now also matching Base addresses): payments outside the rules go
+through the MPC key, with Swissquote recomputing the CHF value at its own USDC price. Attacker mode now also
+tries USDC: CHF 5,000 to the thief is blocked; Face ID alone can only pay the family, within the daily limit.
+
+**Choices made (approved deviations from CLAUDE.md):** OpenZeppelin's `Account` instead of Safe or Kernel
+(the rulebook is the account itself: one small audited base, no module system to configure), and Swissquote's
+own bundler and paymaster instead of a third-party provider (no API key; the operations are standard
+ERC-4337, so any bundler could relay them).
+
+Contracts on Base Sepolia, deployed by Swissquote's wallet, source verified on Sourcify (exact match):
+
+| Contract | Address |
+|---|---|
+| `RulebookAccount` (implementation) | [`0x12055a9C83D6590571B1e3125F8382958830C0Fa`](https://sepolia.basescan.org/address/0x12055a9C83D6590571B1e3125F8382958830C0Fa) |
+| `RulebookAccountFactory` (clones; the address commits to every initial setting) | [`0x101b9D7Ca9A55878D8ee39a94eF1b240Af673867`](https://sepolia.basescan.org/address/0x101b9D7Ca9A55878D8ee39a94eF1b240Af673867) |
+| `SwissquotePaymaster` | [`0x325A7E0Ae8adBAeba04Cce4e095B2D11c9e6ABbB`](https://sepolia.basescan.org/address/0x325A7E0Ae8adBAeba04Cce4e095B2D11c9e6ABbB) |
+
+Live check (`pnpm --filter @sqw/spike-m0-mpc m4-check`, Node playing the phone with a software P-256 passkey):
+
+| What | Signed by | Transaction |
+|---|---|---|
+| Account deployed by its first operation: a daily payment to Léo, gas paid by Swissquote's paymaster | passkey alone | [`0xfec38455…`](https://sepolia.basescan.org/tx/0xfec38455d4f03a214a777739c2c45f9fe25f4663dbe2b27306711ce2dd8b60b6) |
+| Sofia removed (tightening): new rules written on Base | phone + Swissquote (MPC) | [`0x176213b6…`](https://sepolia.basescan.org/tx/0x176213b695a91adb6d37071791c4affbb5d9bfe8281f978bbd7cac9110ffa29e) |
+
+From the app, with real Face ID in the browser (the walkthrough):
+
+| What | Signed by | Transaction |
+|---|---|---|
+| First digital dollar payment: USDC 6.02 to Léo, deploying the account | Face ID passkey alone (WebAuthn, P-256 verified on-chain) | [`0x21b59457…`](https://sepolia.basescan.org/tx/0x21b59457d4e94f948064852166fc42954f69abeb6ca9c83d5b1278af0be49691) |
+| Daily limit lowered (tightening): new rules written on Base, same Face ID | phone + Swissquote (MPC) | [`0x5d163d6f…`](https://sepolia.basescan.org/tx/0x5d163d6f5a0649a8c21a57907cc3132849a840893033997f96f7b6a5d5e4232c) |
+| USDC 10.85 to Léo, above the new limit (client confirmed the extra step) | phone + Swissquote (MPC, scam shield) | [`0x9b08a63f…`](https://sepolia.basescan.org/tx/0x9b08a63f72b50b0dff8b7aa6cdf9bca4c0df7aaf8b44d1ed72c137df265f5b68) |
+
+The live check also proves ownership before and after deployment (ERC-6492, then ERC-1271), and shows the refusals: Face ID alone can no longer pay Sofia (the account refuses), USDC 6,250
+to the thief is blocked by the scam shield, and Swissquote refuses to write the thief's pending contact early.
+
+**Test USDC for demos.** Swissquote's wallet (shown under Plan and settings) needs test USDC from
+faucet.circle.com (Base Sepolia); it powers "Transfer from my Swissquote account" in digital dollars. The
+demo family's Base wallets hold no ETH: Swissquote collects their USDC back every 10 minutes with USDC's
+gasless transfer authorizations (EIP-3009). Gas: `pnpm --filter @sqw/cosigner fund:paymaster` tops up the
+paymaster's deposit from Swissquote's wallet.
+
+**Known limits.** While Swissquote is offline, digital dollar payments wait: in this prototype Swissquote's
+bundler and paymaster are the only way onto Base (production: any public bundler, with a small ETH reserve
+or a second paymaster). The daily limit is a 24-hour window that starts with the first payment, not a rolling
+window. Base's public RPC is load-balanced and can lag a few seconds; the bundler waits for the account's new
+nonce before answering.
 
 ## Real vs mock (so far)
 
@@ -211,6 +302,9 @@ two-phase. Alerts reach the app and a mock e-banking page by polling; real chann
 | Wallet passkey (Face ID) | Real (WebAuthn with PRF) |
 | Swissquote login | Mock (client already verified) |
 | Family contacts | Demo data (Mock), as if imported from Swissquote |
-| BTC/CHF price | Real (CoinGecko), fixed demo price if unavailable (labelled) |
+| BTC, ETH and USDC prices in CHF | Real (CoinGecko), fixed demo prices if unavailable (labelled) |
 | Bitcoin signet transactions | Real |
-| Base Sepolia transactions | Real (M0 spike; app from M4) |
+| Base Sepolia transactions | Real |
+| Rulebook smart account, factory, paymaster | Real contracts on Base Sepolia (verified source) |
+| Bundler and paymaster signer | Real ERC-4337 operations, run by Swissquote's mock service; key in its database (Mock HSM) |
+| Test USDC | Circle's test USDC on Base Sepolia |

@@ -213,6 +213,7 @@ export default function OnboardingPage() {
         <li className="row">You hold one piece, on this phone, unlocked only with Face ID.</li>
         <li className="row">Swissquote holds one piece, to check your larger payments.</li>
         <li className="row">An independent safe-keeper holds one piece, to help you if you lose your phone.</li>
+        <li className="row">The same key holds your bitcoin and your digital dollars (USDC).</li>
       </ul>
       <p className="protected">
         <CheckIcon size={22} /> Swissquote has verified that this safe is yours

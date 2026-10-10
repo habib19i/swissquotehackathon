@@ -12,12 +12,14 @@
     "m2-check": "tsx --env-file-if-exists=../../.env src/m2-check.ts",
     "m3-check": "tsx --env-file-if-exists=../../.env src/m3-check.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "node --import tsx --test src/*.test.ts"
+    "test": "node --import tsx --test src/*.test.ts",
+    "m4-check": "tsx --env-file-if-exists=../../.env src/m4-check.ts"
   },
   "dependencies": {
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0",
     "@sqw/bitcoin": "workspace:*",
+    "@sqw/ethereum": "workspace:*",
     "@sqw/mpc": "workspace:*",
     "@sqw/shared": "workspace:*",
     "bitcoinjs-lib": "7.0.2",

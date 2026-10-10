@@ -1,23 +1,35 @@
 /**
  * Swissquote co-signer service (workstream 2). MOCK of Swissquote's backend.
  * Holds MPC share 2, runs the scam shield, enforces rulebook delays, pays fees on the Premium plan,
- * runs the (mock) face check for recoveries and the Watcher's alerts.
+ * runs the bundler and paymaster on Base, the (mock) face check for recoveries and the Watcher's alerts.
  * Runs as its own process with its own database (CLAUDE.md section 4).
  */
 import type { NextFunction, Request, Response } from "express";
 import { bytesToHex } from "@noble/hashes/utils.js";
+import { isAddress } from "viem";
+import { usdcForChf, verifyEthOwnership } from "@sqw/ethereum";
 import { verifyOwnershipProof } from "@sqw/bitcoin/ownership";
 import { PARTY_ID } from "@sqw/mpc";
 import { MpcError, mpcRouter, peerKeysFrom, sqliteIdentity, sqliteMpcStore } from "@sqw/mpc/server";
-import { rulebookChangeDigest, type CosignRequest, type RecoveryRequest, type RegisterWallet } from "@sqw/shared";
+import { DEMO_CONTACTS, rulebookChangeDigest, type CosignRequest, type RecoveryRequest, type RegisterWallet } from "@sqw/shared";
 import { alerts as alertStore } from "./alerts";
 import { PolicyError } from "./bitcoin-policy";
-import { authorizeCosign, net, ownershipMessageFor, prevoutFromNetwork, reviewSpend, useFeeWallet } from "./cosign-policy";
-import { demoBank } from "./demo-bank";
+import { baseService, parseUserOp } from "./base";
+import {
+  authorizeCosign,
+  ethOwnershipMessageFor,
+  net,
+  ownershipMessageFor,
+  prevoutFromNetwork,
+  reviewSpend,
+  useFeeWallet,
+} from "./cosign-policy";
+import { authorizeEthOp } from "./ethereum-policy";
+import { MAX_TRANSFER_CHF, demoBank, familyEthAccount } from "./demo-bank";
 import { faceChecks } from "./face-check";
 import { feeService } from "./fee-service";
 import { hotWallet } from "./hot-wallet";
-import { btcChf } from "./price";
+import { btcChf, usdcChf } from "./price";
 import { rulebookChanges } from "./rulebook-changes";
 import { screenPayment } from "./shield";
 import { createApp } from "./http";
@@ -42,6 +54,7 @@ const fees = feeService(db, {
 });
 useFeeWallet(operations.address);
 const bank = demoBank(net, operations, fees.reserved);
+const base = baseService(db, operations);
 
 /** A wallet with its rulebook up to date: loosening changes whose waiting period is over are applied. */
 function current(walletId: string): StoredWallet {
@@ -55,12 +68,17 @@ async function providerRecovery(recoveryId: string): Promise<(RecoveryRequest & 
   return res?.ok ? res.json() : undefined;
 }
 
-/** Demo: collect the mock family's test coins back every few minutes, so they keep circulating. */
-const collect = () =>
+/** Demo: collect the mock family's test coins and USDC back every few minutes, so they keep circulating. */
+const collectUsdc = () => base.collectUsdc(DEMO_CONTACTS.map((c) => familyEthAccount(c.id)));
+const collect = () => {
   bank
     .collectFamily()
     .then((txids) => txids.length && console.log(`[cosigner] collected demo family coins: ${txids.join(", ")}`))
     .catch((err) => console.warn(`[cosigner] demo family collection failed: ${err.message}`));
+  collectUsdc()
+    .then((hashes) => hashes.length && console.log(`[cosigner] collected demo family USDC: ${hashes.join(", ")}`))
+    .catch((err) => console.warn(`[cosigner] demo family USDC collection failed: ${err.message}`));
+};
 setTimeout(collect, 5_000);
 setInterval(collect, 10 * 60_000);
 
@@ -102,6 +120,14 @@ app.use(
           throw new MpcError(403, (err as Error).message);
         }
         return rulebookChangeDigest(walletId, req.change, req.nonce);
+      }
+      if (req.kind === "eth-userop") {
+        try {
+          return authorizeEthOp(parseUserOp(req.userOp), await base.policyContext(wallet), req.clientConfirmed);
+        } catch (err) {
+          if (err instanceof PolicyError) throw new MpcError(403, err.message);
+          throw err;
+        }
       }
       return authorizeCosign(wallet, req);
     },
@@ -173,6 +199,68 @@ app.post("/wallets/:walletId/shield/btc", async (req, res) => {
   res.json(result);
 });
 
+/** Scam shield on an intended USDC payment. `amount`: USDC units. */
+app.post("/wallets/:walletId/shield/usdc", async (req, res) => {
+  const wallet = current(req.params.walletId);
+  const to = String(req.body?.to);
+  if (!isAddress(to)) throw new PolicyError("This is not a valid USDC (Base) address.");
+  const valueChf = (Number(req.body?.amount) / 1e6) * (await usdcChf());
+  const result = screenPayment({ address: to, valueChf, rulebook: wallet.rulebook });
+  if (result.verdict === "BLOCKED") {
+    alerts.add({ walletId: wallet.walletId, type: "payment-blocked", message: `Swissquote stopped a payment from your safe. ${result.reasons.join(" ")}` });
+  }
+  res.json(result);
+});
+
+// ---------------------------------------------------------------- USDC on Base: account, bundler, paymaster
+
+/** Sets up the USDC account. Swissquote computes its address from the MPC key and the passkey. Write-once. */
+app.post("/wallets/:walletId/ethereum", async (req, res) => {
+  const wallet = current(req.params.walletId);
+  const account = await base.newAccount(wallet, String(req.body?.passkeySpki ?? ""));
+  if (wallet.ethereum) {
+    if (wallet.ethereum.passkey.x !== account.passkey.x) throw new WalletError(409, "This safe already has a USDC account, for another Face ID.");
+    return res.json(wallet.ethereum);
+  }
+  wallets.registerEthereum(wallet.walletId, account);
+  res.status(201).json(account);
+});
+
+/** Ownership proof of the Base account (Travel Rule): Swissquote dates the message, then checks the account's answer. */
+app.post("/wallets/:walletId/ethereum/ownership/challenge", (req, res) => {
+  const wallet = wallets.require(req.params.walletId);
+  if (!wallet.ethereum) throw new WalletError(404, "This safe has no USDC account yet.");
+  const issuedAt = new Date().toISOString();
+  wallets.startEthOwnershipProof(wallet, issuedAt);
+  res.json({ issuedAt });
+});
+
+app.post("/wallets/:walletId/ethereum/ownership/proof", async (req, res) => {
+  const wallet = wallets.require(req.params.walletId);
+  const proof = String(req.body?.signature ?? "");
+  if (!wallet.ethereum || !/^0x[0-9a-fA-F]+$/.test(proof)) throw new WalletError(400, "The ownership proof did not verify.");
+  const verified = await verifyEthOwnership(base.client, wallet.ethereum.address, ethOwnershipMessageFor(wallet), proof as `0x${string}`).catch(() => false);
+  if (!verified) throw new WalletError(400, "The ownership proof did not verify.");
+  wallets.markEthOwnershipVerified(wallet);
+  res.json(wallets.require(wallet.walletId).ethereum);
+});
+
+app.get("/wallets/:walletId/ethereum/status", async (req, res) => {
+  res.json(await base.status(current(req.params.walletId)));
+});
+
+app.get("/wallets/:walletId/ethereum/fee", async (req, res) => {
+  res.json(await base.feeQuote(wallets.require(req.params.walletId).plan));
+});
+
+app.post("/wallets/:walletId/ethereum/ops/prepare", async (req, res) => {
+  res.json(await base.prepare(current(req.params.walletId), { callData: req.body?.callData, signer: req.body?.signer === "mpc" ? "mpc" : "passkey" }));
+});
+
+app.post("/wallets/:walletId/ethereum/ops/send", async (req, res) => {
+  res.json(await base.send(current(req.params.walletId), req.body?.userOp));
+});
+
 // ---------------------------------------------------------------- rulebook
 
 app.get("/wallets/:walletId/rulebook", (req, res) => {
@@ -229,6 +317,9 @@ app.post("/wallets/:walletId/recovered", async (req, res) => {
     throw new WalletError(403, "The recovery provider has not completed this recovery.");
   }
   if (req.body?.pocketPublicKey !== wallet.pocketPublicKey) wallets.replacePocket(wallet, String(req.body?.pocketPublicKey));
+  if (req.body?.passkeySpki && wallet.ethereum) {
+    wallets.replaceEthPasskey(wallet, (await base.newAccount(wallet, String(req.body.passkeySpki))).passkey);
+  }
   res.json(publicRecord(wallets.require(wallet.walletId)));
 });
 
@@ -252,16 +343,29 @@ app.get("/wallets/:walletId/alerts", (req, res) => {
 app.get("/demo/account", async (_req, res) => {
   const { ready, waiting } = await operations.spendable(fees.reserved());
   const sum = (coins: { value: number }[]) => coins.reduce((s, c) => s + c.value, 0);
-  res.json({ address: operations.address, ready: sum(ready), waiting: sum(waiting), dailyFeeCapSats: Number(fees.dailyCapSats) });
+  res.json({
+    address: operations.address,
+    ready: sum(ready),
+    waiting: sum(waiting),
+    dailyFeeCapSats: Number(fees.dailyCapSats),
+    base: await base.demoAccount().catch(() => undefined),
+  });
 });
 
 app.post("/demo/collect", async (_req, res) => {
-  res.json({ txids: await bank.collectFamily() });
+  const [txids, usdcTxs] = await Promise.all([bank.collectFamily(), collectUsdc()]);
+  res.json({ txids, usdcTxs });
 });
 
-/** MOCK "Transfer from my Swissquote account": test bitcoin to the client's own registered address. */
+/** MOCK "Transfer from my Swissquote account": test bitcoin or USDC to the client's own registered safe. */
 app.post("/wallets/:walletId/demo/transfer", async (req, res) => {
   const wallet = wallets.require(req.params.walletId);
+  if (req.body?.asset === "USDC") {
+    const amountChf = Number(req.body?.amountChf);
+    if (!wallet.ethereum) throw new WalletError(404, "This safe has no USDC account yet.");
+    if (!(amountChf > 0) || amountChf > MAX_TRANSFER_CHF) throw new PolicyError(`Transfers are between CHF 1 and CHF ${MAX_TRANSFER_CHF} in the demo.`);
+    return res.json({ txHash: await base.sendUsdc(wallet.ethereum.address, usdcForChf(amountChf, await usdcChf())) });
+  }
   const into = req.body?.into === "pocket" ? "pocket" : "savings";
   res.json({ txid: await bank.transfer(wallet, Number(req.body?.amountChf), into, await btcChf()) });
 });

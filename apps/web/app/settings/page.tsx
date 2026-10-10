@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { formatEther } from "viem";
+import { formatUsdc } from "@sqw/ethereum";
 import type { Plan } from "@sqw/shared";
 import { PlanChoice } from "../../components/plan-choice";
 import { Mock, Screen } from "../../components/screen";
@@ -33,8 +35,9 @@ function Settings({ profile }: { profile: WalletProfile }) {
 
   async function collect() {
     try {
-      const { txids } = await cosigner.demoCollect();
-      setMessage(txids.length ? `Collected test bitcoin from ${txids.length} family wallet(s).` : "The demo family has no confirmed test bitcoin to collect yet.");
+      const { txids, usdcTxs } = await cosigner.demoCollect();
+      const collected = [txids.length && `test bitcoin from ${txids.length}`, usdcTxs.length && `test USDC from ${usdcTxs.length}`].filter(Boolean);
+      setMessage(collected.length ? `Collected ${collected.join(" and ")} family wallet(s).` : "The demo family has nothing confirmed to collect yet.");
       setAccount(await cosigner.demoAccount());
     } catch (err) {
       setMessage((err as Error).message);
@@ -45,7 +48,11 @@ function Settings({ profile }: { profile: WalletProfile }) {
     setPlan(next);
     try {
       await cosigner.setPlan(profile.walletId, next);
-      setMessage(next === "premium" ? "Premium: Swissquote now pays your network fees." : "Standard: you now pay the network fee of each payment.");
+      setMessage(
+        next === "premium"
+          ? "Premium: Swissquote now pays your network fees, in bitcoin and in digital dollars."
+          : "Standard: you now pay the network fee of each payment (in digital dollars: a small USDC fee to Swissquote, never ETH).",
+      );
     } catch (err) {
       setMessage((err as Error).message);
     }
@@ -74,8 +81,32 @@ function Settings({ profile }: { profile: WalletProfile }) {
           <p className="address tabular">{account.address}</p>
           <p className="small muted">Fund it with test bitcoin from a faucet, ideally well before a demo.</p>
           <button className="button secondary" style={{ marginTop: 12 }} onClick={collect}>
-            Collect the demo family&rsquo;s test bitcoin now
+            Collect the demo family&rsquo;s test coins now
           </button>
+        </section>
+      )}
+
+      {account?.base && (
+        <section className="notice">
+          <p className="row-title">
+            Swissquote on Base <Mock />
+          </p>
+          <p className="small muted">
+            Relays digital dollar payments to the network (bundler), pays their gas from its deposit (paymaster), and
+            plays your Swissquote account for USDC transfers.
+          </p>
+          <dl className="slip-details" style={{ padding: 0, border: 0 }}>
+            <dt>Test USDC</dt>
+            <dd className="tabular">{formatUsdc(BigInt(account.base.usdc))}</dd>
+            <dt>Gas deposit</dt>
+            <dd className="tabular">{formatEther(BigInt(account.base.paymasterDeposit))} ETH</dd>
+            <dt>Relay wallet</dt>
+            <dd className="tabular">{formatEther(BigInt(account.base.eth))} ETH</dd>
+          </dl>
+          <p className="address tabular">{account.base.address}</p>
+          <p className="small muted">
+            Get test USDC for this address at faucet.circle.com (network: Base Sepolia).
+          </p>
         </section>
       )}
     </Screen>

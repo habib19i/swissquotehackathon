@@ -2,13 +2,22 @@
  * Swissquote's record of each client wallet, in the co-signer's own database.
  * Registration is write-once: the Spending pocket (the refill destination) cannot be redirected later,
  * except by a completed recovery, which moves the old pocket to `oldPocketKeys` so it can be swept.
+ * The same goes for the USDC account on Base and the passkey it accepts.
  */
 import type { DatabaseSync } from "node:sqlite";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { hexToBytes } from "@noble/hashes/utils.js";
 import { savingsSafe, spendingPocket } from "@sqw/bitcoin";
 import { addColumnIfMissing } from "@sqw/mpc/server";
-import { DEMO_CONTACTS, defaultRulebook, type Plan, type RegisterWallet, type Rulebook, type WalletRecord } from "@sqw/shared";
+import {
+  DEMO_CONTACTS,
+  defaultRulebook,
+  type EthAccountRecord,
+  type Plan,
+  type RegisterWallet,
+  type Rulebook,
+  type WalletRecord,
+} from "@sqw/shared";
 
 export interface StoredWallet extends WalletRecord {
   rulebook: Rulebook;
@@ -30,6 +39,7 @@ interface Row {
   ownership_issued_at: string | null;
   ownership_verified_at: string | null;
   old_pocket_keys: string | null;
+  ethereum: string | null;
 }
 
 export class WalletError extends Error {
@@ -67,6 +77,7 @@ export function walletStore(db: DatabaseSync) {
     );
   `);
   addColumnIfMissing(db, "wallets", "old_pocket_keys", "TEXT");
+  addColumnIfMissing(db, "wallets", "ethereum", "TEXT");
 
   const toWallet = (row: Row): StoredWallet => ({
     walletId: row.wallet_id,
@@ -80,6 +91,7 @@ export function walletStore(db: DatabaseSync) {
     ownershipIssuedAt: row.ownership_issued_at ?? undefined,
     ownershipVerifiedAt: row.ownership_verified_at ?? undefined,
     oldPocketKeys: row.old_pocket_keys ? JSON.parse(row.old_pocket_keys) : [],
+    ethereum: row.ethereum ? JSON.parse(row.ethereum) : undefined,
   });
 
   // MOCK contacts follow the current demo data (e.g. after the demo family's addresses changed).
@@ -88,6 +100,12 @@ export function walletStore(db: DatabaseSync) {
     const parsed: Rulebook = JSON.parse(rulebook);
     parsed.contacts = parsed.contacts.map((c) => DEMO_CONTACTS.find((d) => d.id === c.id) ?? c);
     db.prepare("UPDATE wallets SET rulebook = ? WHERE wallet_id = ?").run(JSON.stringify(parsed), wallet_id);
+  }
+
+  /** The address and settings never change: only the passkey and the ownership proof's fields do. */
+  function updateEthereum(wallet: StoredWallet, patch: Partial<Pick<EthAccountRecord, "passkey" | "ownershipIssuedAt" | "ownershipVerifiedAt">>) {
+    if (!wallet.ethereum) return;
+    db.prepare("UPDATE wallets SET ethereum = ? WHERE wallet_id = ?").run(JSON.stringify({ ...wallet.ethereum, ...patch }), wallet.walletId);
   }
 
   function get(walletId: string): StoredWallet | undefined {
@@ -159,6 +177,24 @@ export function walletStore(db: DatabaseSync) {
         JSON.stringify(old),
         wallet.walletId,
       );
+    },
+
+    /** Swissquote computed the account's address itself from the MPC key and the passkey. Write-once. */
+    registerEthereum(walletId: string, record: EthAccountRecord) {
+      db.prepare("UPDATE wallets SET ethereum = ? WHERE wallet_id = ? AND ethereum IS NULL").run(JSON.stringify(record), walletId);
+    },
+
+    /** After a completed recovery only: the account must now accept the new phone's passkey. */
+    replaceEthPasskey(wallet: StoredWallet, passkey: EthAccountRecord["passkey"]) {
+      updateEthereum(wallet, { passkey });
+    },
+
+    startEthOwnershipProof(wallet: StoredWallet, issuedAt: string) {
+      updateEthereum(wallet, { ownershipIssuedAt: issuedAt });
+    },
+
+    markEthOwnershipVerified(wallet: StoredWallet) {
+      updateEthereum(wallet, { ownershipVerifiedAt: new Date().toISOString() });
     },
 
     setPlan(walletId: string, plan: Plan) {

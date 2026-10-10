@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { InsufficientFundsError, chfToSats } from "@sqw/bitcoin";
+import { InsufficientFundsError, chfToSats, satsToChf } from "@sqw/bitcoin";
+import { chfForUsdc } from "@sqw/ethereum";
 import { explorer, type Contact } from "@sqw/shared";
 import { FaceIcon, ShieldIcon } from "../../components/icons";
 import { Screen } from "../../components/screen";
 import { RequireWallet } from "../../components/wallet-context";
-import { formatBtc, formatSatsAsChf, shortId } from "../../lib/format";
+import { formatBtc, formatChf, formatSatsAsChf, shortId } from "../../lib/format";
 import type { WalletProfile } from "../../lib/profile";
 import { loadRulebook } from "../../lib/rules";
 import { usePrice } from "../../lib/use-price";
@@ -19,6 +20,8 @@ import {
   type PaymentResult,
   type PreparedPayment,
 } from "../../lib/wallet-bitcoin";
+import { loadUsdcBalance } from "../../lib/wallet-usdc";
+import { UsdcSend } from "./usdc";
 
 export default function SendPage() {
   return <RequireWallet>{(profile) => <Send profile={profile} />}</RequireWallet>;
@@ -26,16 +29,36 @@ export default function SendPage() {
 
 type Step =
   | { name: "contact" }
+  /** The contact can receive bitcoin and digital dollars: the client chooses. */
+  | { name: "asset"; contact: Contact }
+  | { name: "usdc"; contact: Contact }
   | { name: "amount"; contact: Contact }
   | { name: "confirm"; payment: PreparedPayment }
   | { name: "sent"; payment: PreparedPayment; result: PaymentResult };
+
+/** Asks for the asset only when the contact can receive both. */
+function firstStepFor(contact: Contact): Step {
+  if (contact.btcAddress && contact.ethAddress) return { name: "asset", contact };
+  return contact.ethAddress ? { name: "usdc", contact } : { name: "amount", contact };
+}
 
 function Send({ profile }: { profile: WalletProfile }) {
   const [step, setStep] = useState<Step>({ name: "contact" });
 
   switch (step.name) {
     case "contact":
-      return <ContactStep profile={profile} onPick={(contact) => setStep({ name: "amount", contact })} />;
+      return <ContactStep profile={profile} onPick={(contact) => setStep(firstStepFor(contact))} />;
+    case "asset":
+      return (
+        <AssetStep
+          profile={profile}
+          contact={step.contact}
+          onBack={() => setStep({ name: "contact" })}
+          onPick={(asset) => setStep(asset === "USDC" ? { name: "usdc", contact: step.contact } : { name: "amount", contact: step.contact })}
+        />
+      );
+    case "usdc":
+      return <UsdcSend profile={profile} contact={step.contact} onBack={() => setStep({ name: "contact" })} />;
     case "amount":
       return (
         <AmountStep
@@ -90,6 +113,68 @@ function ContactStep({ profile, onPick }: { profile: WalletProfile; onPick: (con
         To pay someone new, <Link href="/rules">add them as a contact</Link>. Swissquote checks them for you, and they
         become a contact after a waiting period.
       </p>
+    </Screen>
+  );
+}
+
+/** Bitcoin or digital dollars, with what each can pay. */
+function AssetStep({
+  profile,
+  contact,
+  onBack,
+  onPick,
+}: {
+  profile: WalletProfile;
+  contact: Contact;
+  onBack: () => void;
+  onPick: (asset: "BTC" | "USDC") => void;
+}) {
+  const price = usePrice();
+  const [btc, setBtc] = useState<bigint>();
+  const [usdc, setUsdc] = useState<bigint | string>();
+
+  useEffect(() => {
+    available(profile)
+      .then((a) => setBtc(a.pocket > a.savings ? a.pocket : a.savings))
+      .catch(() => undefined);
+    loadUsdcBalance(profile)
+      .then(setUsdc)
+      .catch((err) => setUsdc((err as Error).message));
+  }, [profile]);
+
+  return (
+    <Screen
+      back={{ href: "/send" }}
+      actions={
+        <button className="button quiet" onClick={onBack}>
+          Choose someone else
+        </button>
+      }
+    >
+      <h1>What do you want to send to {contact.name}?</h1>
+      <ul className="rows">
+        <li>
+          <button className="row" onClick={() => onPick("BTC")}>
+            <span className="row-main">
+              <span className="row-title">Bitcoin</span>
+              <br />
+              <span className="small muted">From your Spending pocket or Savings safe</span>
+            </span>
+            <span className="row-amount">{btc === undefined || !price ? "…" : formatChf(satsToChf(btc, price.btcChf))}</span>
+          </button>
+        </li>
+        <li>
+          <button className="row" onClick={() => onPick("USDC")} disabled={typeof usdc === "string"}>
+            <span className="row-main">
+              <span className="row-title">Digital dollars</span>
+              <br />
+              <span className="small muted">{typeof usdc === "string" ? usdc : "USDC, arrives within seconds"}</span>
+            </span>
+            <span className="row-amount">{typeof usdc !== "bigint" || !price ? "…" : formatChf(chfForUsdc(usdc, price.usdcChf))}</span>
+          </button>
+        </li>
+      </ul>
+      <p className="small muted">Amounts are what you can send in one payment.</p>
     </Screen>
   );
 }

@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { chfToSats } from "@sqw/bitcoin";
-import { DEMO_ATTACKER_BTC_ADDRESS, type PendingChange } from "@sqw/shared";
+import { usdcForChf } from "@sqw/ethereum";
+import { DEMO_ATTACKER_BTC_ADDRESS, DEMO_ATTACKER_ETH_ADDRESS, type PendingChange } from "@sqw/shared";
 import { Countdown } from "../../../components/countdown";
 import { Mock, Screen } from "../../../components/screen";
 import { RequireWallet } from "../../../components/wallet-context";
@@ -21,7 +22,7 @@ export default function AttackerPage() {
 
 type Outcome = { verdict: "refused" | "allowed" | "pending"; lines: string[] };
 
-const THIEF = { id: "attacker", name: "Mr. Smith (the thief)", btcAddress: DEMO_ATTACKER_BTC_ADDRESS };
+const THIEF = { id: "attacker", name: "Mr. Smith (the thief)", btcAddress: DEMO_ATTACKER_BTC_ADDRESS, ethAddress: DEMO_ATTACKER_ETH_ADDRESS };
 
 /**
  * Attacker mode (CLAUDE.md section 8): the thief holds the unlocked phone AND the client's email.
@@ -72,9 +73,16 @@ function Attacker({ profile }: { profile: WalletProfile }) {
       title: `Send ${formatChf(5_000)} to himself`,
       run: () =>
         attempt("send", async () => {
-          if (!price) throw new Error("Waiting for the bitcoin price.");
-          const result = await cosigner.shield(profile.walletId, DEMO_ATTACKER_BTC_ADDRESS, chfToSats(5_000, price.btcChf));
-          return { verdict: result.verdict === "BLOCKED" ? "refused" : "allowed", lines: [`Swissquote: ${result.verdict}.`, ...result.reasons] };
+          if (!price) throw new Error("Waiting for the prices.");
+          const [btc, usdc] = await Promise.all([
+            cosigner.shield(profile.walletId, DEMO_ATTACKER_BTC_ADDRESS, chfToSats(5_000, price.btcChf)),
+            cosigner.shieldUsdc(profile.walletId, DEMO_ATTACKER_ETH_ADDRESS, usdcForChf(5_000, price.usdcChf)),
+          ]);
+          const stopped = btc.verdict === "BLOCKED" && usdc.verdict === "BLOCKED";
+          return {
+            verdict: stopped ? "refused" : "allowed",
+            lines: [`Swissquote: ${btc.verdict} in bitcoin, ${usdc.verdict} in digital dollars.`, ...btc.reasons],
+          };
         }),
     },
     {
@@ -82,7 +90,7 @@ function Attacker({ profile }: { profile: WalletProfile }) {
       title: "Add himself as a contact",
       run: () =>
         attempt("contact", async () => {
-          const id = await requestChange(profile, { kind: "addContact", contact: { ...THIEF, id: `attacker-${Date.now().toString(36)}` } });
+          const { id } = await requestChange(profile, { kind: "addContact", contact: { ...THIEF, id: `attacker-${Date.now().toString(36)}` } });
           const change = (await cosigner.changes(profile.walletId)).find((c) => c.id === id);
           setContactChange(change);
           return {
@@ -105,7 +113,8 @@ function Attacker({ profile }: { profile: WalletProfile }) {
             verdict: "allowed",
             lines: [
               `He can spend the Spending pocket: at most ${formatSatsAsChf(pocket, price?.btcChf)} today, never more than its size of ${formatChf(100)}.`,
-              "Everything in the Savings safe needs Swissquote's check, which stops new recipients and large amounts.",
+              `In digital dollars, he can only pay your approved contacts (your family), up to your daily limit of ${formatChf(100)}: your account on Base checks this itself.`,
+              "Everything else needs Swissquote's check, which stops new recipients and large amounts.",
             ],
           };
         }),

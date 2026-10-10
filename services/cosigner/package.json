@@ -7,16 +7,20 @@
     "dev": "tsx watch --env-file-if-exists=../../.env src/index.ts",
     "start": "tsx --env-file-if-exists=../../.env src/index.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "node --import tsx --test src/*.test.ts"
+    "test": "node --import tsx --test src/*.test.ts",
+    "deploy:base": "tsx --env-file-if-exists=../../.env scripts/deploy-base.ts",
+    "fund:paymaster": "tsx --env-file-if-exists=../../.env scripts/fund-paymaster.ts"
   },
   "dependencies": {
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0",
     "@sqw/bitcoin": "workspace:*",
+    "@sqw/ethereum": "workspace:*",
     "@sqw/mpc": "workspace:*",
     "@sqw/shared": "workspace:*",
     "bitcoinjs-lib": "7.0.2",
-    "express": "^5.3.0"
+    "express": "^5.3.0",
+    "viem": "2.57.4"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

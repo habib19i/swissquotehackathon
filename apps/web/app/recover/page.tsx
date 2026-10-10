@@ -14,7 +14,7 @@ import { shortId } from "../../lib/format";
 import type { WalletPasskey } from "../../lib/passkey";
 import { saveClient, type Client } from "../../lib/profile";
 import { provider } from "../../lib/provider";
-import { beginRecovery, completeRecovery, faceCheck, verifyRecovery } from "../../lib/recover";
+import { beginRecovery, completeRecovery, faceCheck, verifyRecovery, type RecoveryResult } from "../../lib/recover";
 
 type Step = "identify" | "face-id" | "recovery-key" | "face-check" | "refused" | "waiting" | "cancelled" | "restoring" | "done";
 
@@ -30,7 +30,7 @@ export default function RecoverPage() {
   const [pending, setPending] = useState<{ recovery: RecoveryRequest; requestId: string; assertion: unknown }>();
   const [recovery, setRecovery] = useState<RecoveryRequest & { ready?: boolean }>();
   const [round, setRound] = useState(0);
-  const [result, setResult] = useState<{ sweepTxid?: string; sweepError?: string }>();
+  const [result, setResult] = useState<Omit<RecoveryResult, "profile">>();
   const client: Client = { name: loggedIn?.name ?? DEMO_CLIENT.name, clientNumber: clientNumber.trim() };
 
   useEffect(() => {
@@ -242,6 +242,18 @@ export default function RecoverPage() {
         </p>
       )}
       {result?.sweepError && <p className="notice">Your old Spending pocket could not be moved yet: {result.sweepError}</p>}
+      {result?.baseTxHash && (
+        <p className="notice ok">
+          Your digital dollars now answer to this phone&rsquo;s Face ID. The lost phone&rsquo;s Face ID no longer works.
+          <br />
+          <a className="small" href={explorer.baseTx(result.baseTxHash)} target="_blank" rel="noreferrer">
+            View {shortId(result.baseTxHash)} on Base
+          </a>
+        </p>
+      )}
+      {result?.baseError && (
+        <p className="notice">Your digital dollars could not be switched to this phone yet: {result.baseError}. You can retry from your home screen.</p>
+      )}
     </Screen>
   );
 }
