@@ -1,0 +1,27 @@
+{
+  "name": "@sqw/spike-m0-mpc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M0 spike: sign and broadcast real testnet transactions with a 2-of-3 MPC key",
+  "scripts": {
+    "keygen": "tsx --env-file-if-exists=../../.env src/keygen.ts",
+    "send-btc": "tsx --env-file-if-exists=../../.env src/send-btc.ts",
+    "send-eth": "tsx --env-file-if-exists=../../.env src/send-eth.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --import tsx --test src/*.test.ts"
+  },
+  "dependencies": {
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0",
+    "@sqw/mpc": "workspace:*",
+    "@sqw/shared": "workspace:*",
+    "bitcoinjs-lib": "7.0.2",
+    "viem": "2.57.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}

@@ -10,3 +10,6 @@ contracts/cache/
 contracts/lib/
 .DS_Store
 *.tsbuildinfo
+
+# M0 spike: local MPC shares (never commit)
+spikes/m0-mpc/.shares/
