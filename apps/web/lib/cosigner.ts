@@ -7,6 +7,7 @@ import type {
   Alert,
   BtcReview,
   BtcSpendPurpose,
+  ContactScreening,
   CosignRequest,
   EthAccountRecord,
   EthFeeQuote,
@@ -72,6 +73,9 @@ export const cosigner = {
   ethFee: (walletId: string) => call<EthFeeQuote>(`/wallets/${walletId}/ethereum/fee`),
   ethPrepare: (walletId: string, req: EthPrepareRequest) => call<EthPrepared>(`/wallets/${walletId}/ethereum/ops/prepare`, req),
   ethSend: (walletId: string, userOp: Record<string, string>) => call<EthSent>(`/wallets/${walletId}/ethereum/ops/send`, { userOp }),
+  /** Scam shield on a contact the client wants to add, before Face ID. */
+  shieldContact: (walletId: string, contact: { name: string; btcAddress?: string; ethAddress?: string }) =>
+    call<ContactScreening>(`/wallets/${walletId}/shield/contact`, { contact }),
   /** Scam shield on an intended USDC payment. `amount`: USDC units. */
   shieldUsdc: (walletId: string, to: string, amount: bigint) =>
     call<ShieldResult>(`/wallets/${walletId}/shield/usdc`, { to, amount: String(amount) }),

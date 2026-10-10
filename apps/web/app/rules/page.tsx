@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { explorer, type EthStatus, type PendingChange, type Rulebook, type RulebookChange } from "@sqw/shared";
+import { explorer, type ContactScreening, type EthStatus, type PendingChange, type Rulebook, type RulebookChange } from "@sqw/shared";
 import { Countdown, DemoModeNote } from "../../components/countdown";
+import { CheckIcon, ShieldIcon } from "../../components/icons";
 import { Screen } from "../../components/screen";
 import { RequireWallet } from "../../components/wallet-context";
 import { cosigner } from "../../lib/cosigner";
@@ -30,6 +31,13 @@ function Rules({ profile }: { profile: WalletProfile }) {
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [usdcAddress, setUsdcAddress] = useState("");
+  /** Swissquote's checks of the contact being added, shown before Face ID. */
+  const [screening, setScreening] = useState<ContactScreening>();
+  /** Editing the contact means Swissquote has to check it again. */
+  const edited = (set: (value: string) => void) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    set(e.target.value);
+    setScreening(undefined);
+  };
   const [editing, setEditing] = useState<"daily" | "pocket">();
   const [amount, setAmount] = useState("");
 
@@ -51,6 +59,7 @@ function Rules({ profile }: { profile: WalletProfile }) {
       const { base } = await requestChange(profile, c);
       setMessage({ ok: true, text: done, base });
       setAdding(false);
+      setScreening(undefined);
       await load();
     } catch (err) {
       setMessage({ ok: false, text: (err as Error).message });
@@ -172,8 +181,11 @@ function Rules({ profile }: { profile: WalletProfile }) {
               ...(address.trim() && { btcAddress: address.trim() }),
               ...(usdcAddress.trim() && { ethAddress: usdcAddress.trim() as `0x${string}` }),
             };
-            if (!contact.btcAddress && !contact.ethAddress) {
-              setMessage({ ok: false, text: "Please give a Bitcoin or a digital dollar address." });
+            if (!screening) {
+              cosigner
+                .shieldContact(profile.walletId, contact)
+                .then(setScreening)
+                .catch((err) => setMessage({ ok: false, text: (err as Error).message }));
               return;
             }
             change(
@@ -184,21 +196,28 @@ function Rules({ profile }: { profile: WalletProfile }) {
         >
           <div className="field">
             <label htmlFor="contact-name">Name</label>
-            <input id="contact-name" className="input" value={name} onChange={(e) => setName(e.target.value)} required />
+            <input id="contact-name" className="input" value={name} onChange={edited(setName)} required />
           </div>
           <div className="field" style={{ marginTop: 12 }}>
             <label htmlFor="contact-address">Their Bitcoin address</label>
-            <input id="contact-address" className="input" value={address} onChange={(e) => setAddress(e.target.value)} />
+            <input id="contact-address" className="input" value={address} onChange={edited(setAddress)} />
           </div>
           <div className="field" style={{ marginTop: 12 }}>
             <label htmlFor="contact-usdc">Their digital dollar (USDC) address</label>
-            <input id="contact-usdc" className="input" value={usdcAddress} onChange={(e) => setUsdcAddress(e.target.value)} placeholder="0x…" />
+            <input
+              id="contact-usdc"
+              className="input"
+              value={usdcAddress}
+              onChange={edited(setUsdcAddress)}
+              placeholder="0x…"
+            />
           </div>
           <p className="small muted" style={{ marginTop: 8 }}>
             Give at least one.
           </p>
-          <button className="button" style={{ marginTop: 16 }} disabled={busy}>
-            {busy ? "Waiting for Face ID…" : "Add with Face ID"}
+          {screening && <ScreeningCard screening={screening} />}
+          <button className="button" style={{ marginTop: 16 }} disabled={busy || screening?.verdict === "BLOCKED"}>
+            {busy ? "Waiting for Face ID…" : !screening ? "Check with Swissquote" : screening.verdict === "BLOCKED" ? "Swissquote cannot add this contact" : "Add with Face ID"}
           </button>
         </form>
       ) : (
@@ -276,5 +295,27 @@ function BaseUpdate({ base }: { base?: ChangeResult["base"] }) {
         Also written on Base: {shortId(base.txHash)}
       </a>
     </>
+  );
+}
+
+/** The scam shield's checks of a new contact, in plain language (CLAUDE.md section 9). */
+function ScreeningCard({ screening }: { screening: ContactScreening }) {
+  const blocked = screening.verdict === "BLOCKED";
+  return (
+    <div className={`notice ${blocked ? "error" : "warn"}`} style={{ marginTop: 16 }} role="status">
+      <p className="protected" style={{ color: "inherit" }}>
+        <ShieldIcon size={20} /> {blocked ? "Stopped by Swissquote" : "Checked by Swissquote"}
+      </p>
+      <ul className="checks">
+        {screening.checks.map((check) => (
+          <li key={check.label} className={check.result}>
+            <span aria-hidden="true">{check.result === "pass" ? <CheckIcon size={18} /> : check.result === "fail" ? "✕" : "!"}</span>
+            <span>
+              <strong>{check.label}.</strong> {check.detail}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

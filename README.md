@@ -2,7 +2,7 @@
 
 A self-custody wallet Swissquote could launch for its clients: **their keys, their control, one step away from their Swissquote account.** Built for the Swissquote Wallet Challenge (EPFL, October 2026).
 
-> Status: M3 done: the core story works end to end on signet (create, pay, lose the phone, recover). M4 done: digital dollars (USDC on Base Sepolia) in the same safe, with the rulebook enforced on-chain. See below. The full spec lives in [`CLAUDE.md`](CLAUDE.md). The README sections required by the brief (custody and threat model, architecture diagram, Travel Rule, business model, bonus topics, AI tools) are filled in by workstream 5.
+> Status: M3 done: the core story works end to end on signet (create, pay, lose the phone, recover). M4 done: digital dollars (USDC on Base Sepolia) in the same safe, with the rulebook enforced on-chain. M5 done: payment assistant (text or voice, four languages) and the scam shield on new contacts. See below. The full spec lives in [`CLAUDE.md`](CLAUDE.md). The README sections required by the brief (custody and threat model, architecture diagram, Travel Rule, business model, bonus topics, AI tools) are filled in by workstream 5.
 
 ## The idea in one paragraph
 
@@ -287,6 +287,46 @@ or a second paymaster). The daily limit is a 24-hour window that starts with the
 window. Base's public RPC is load-balanced and can lag a few seconds; the bundler waits for the account's new
 nonce before answering.
 
+## Payment assistant and scam shield (M5)
+
+**"Send 50 USDC to my son."** The client types or speaks a request on the assistant screen. **The model drafts,
+the rules decide, the client confirms:**
+
+1. **Planner** ([`apps/web/lib/assistant/planner.ts`](apps/web/lib/assistant/planner.ts), adapted from Orchestra's Planner):
+   a server route sends the request text and the contacts' first names, nothing else (no client identity, no
+   addresses, no balances), to **Apertus**, the Swiss open model, through the Hugging Face router's
+   OpenAI-compatible API. It answers with a structured draft `{recipient, amount, currency, asset, pocket}`.
+   Model switch (Orchestra's): any OpenAI-compatible API, with a fallback model (`LLM_FALLBACK_MODEL`); the screen
+   says which model understood the request. In production Apertus runs in Switzerland (self-hosted or a Swiss
+   sovereign cloud). **For the demo** the Apertus accounts (Hugging Face router, Public AI) had no credit, so the
+   switch points to Groq's free tier: `openai/gpt-oss-120b`, falling back to `qwen/qwen3.8-27b`. Switching back to
+   Apertus is a change of `LLM_BASE_URL` / `LLM_MODEL` in `.env`.
+2. **Rules** ([`packages/shared/src/assistant.ts`](packages/shared/src/assistant.ts), deterministic, unit-tested in
+   four languages): the recipient must be a saved contact, matched by name or relation; if none matches or the
+   name is ambiguous, the assistant asks ("Which son: Léo or Adam?"). **The assistant never accepts an address**,
+   so no message, including a prompt injection, can make it pay a stranger. **Safety net** (Orchestra's): the
+   recipient and the amount must come from the client's own words, and the unit written next to the amount wins
+   over the model's reading; a bitcoin amount needs "BTC" next to it, otherwise amounts are francs. Every
+   sentence the assistant says comes from these rules, in English, French, German or Italian: the model's own
+   text is never shown.
+3. **Card**: the resolved draft becomes a payment exactly like one from the Send screen (Spending pocket,
+   Savings safe or digital dollars; scam shield; fee and who pays it). The client taps **Confirm with Face ID**
+   or **Cancel**. The assistant holds no key and sends nothing.
+
+Voice uses the browser's speech recognition (labelled **Mock** of a Swiss-hosted speech-to-text service).
+
+**Scam shield on new contacts** (where scams happen). Before Face ID, adding a contact shows Swissquote's checks
+in plain language: a valid address, sanctions screening and reported scams (mock lists), not already someone
+else's address, then a "someone new" warning and the waiting period. A failed check blocks the contact; the
+co-signer runs the very same checks before it co-signs the change.
+
+Checked: the rules and the contact screening are covered by tests, and the Planner's parsing and model switch
+with a stubbed model. Live, eight requests in four languages ("Send 50 USDC to my son", "Envoie 20 francs à Léo en
+bitcoin", "Schick meiner Tochter 30 Franken in Bitcoin", "Manda 10 dollari a mio figlio", a payment from the
+savings, an address injection, an unknown name...) gave the expected outcome with both models (gpt-oss-120b in
+about 0.6 s, Qwen in about 0.2 s), and the walkthrough paid from the card with Face ID. If no model can be
+reached, the assistant says why instead of pretending.
+
 ## Real vs mock (so far)
 
 | Component | Status |
@@ -308,3 +348,5 @@ nonce before answering.
 | Rulebook smart account, factory, paymaster | Real contracts on Base Sepolia (verified source) |
 | Bundler and paymaster signer | Real ERC-4337 operations, run by Swissquote's mock service; key in its database (Mock HSM) |
 | Test USDC | Circle's test USDC on Base Sepolia |
+| Payment assistant model | Real: gpt-oss-120b on Groq for the demo (fallback Qwen); Apertus, the intended Swiss model, is one setting away (Mock of the Swiss-hosted deployment) |
+| Speech-to-text | Mock (the browser's speech recognition, standing in for a Swiss-hosted service) |

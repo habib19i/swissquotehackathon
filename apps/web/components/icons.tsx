@@ -19,6 +19,19 @@ function Svg({ size = 24, children }: IconProps & { children: React.ReactNode })
   );
 }
 
+export const MicIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="9" y="3" width="6" height="11" rx="3" />
+    <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+  </Svg>
+);
+
+export const ChatIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 5h16v11H9l-5 4V5z" />
+  </Svg>
+);
+
 export const ShieldIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6l8-3z" />

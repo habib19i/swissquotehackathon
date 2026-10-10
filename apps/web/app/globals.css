@@ -637,3 +637,97 @@ button.row {
 .ebanking {
   max-width: 720px;
 }
+
+/* ---------- Payment assistant ---------- */
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bubble {
+  max-width: 88%;
+  padding: 12px 16px;
+  border-radius: 18px;
+}
+
+.bubble.client {
+  align-self: flex-end;
+  background: var(--ink);
+  color: #fff;
+  border-bottom-right-radius: 6px;
+}
+
+.bubble.assistant {
+  align-self: flex-start;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-bottom-left-radius: 6px;
+}
+
+.composer {
+  display: flex;
+  gap: 8px;
+}
+
+.composer .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.icon-button {
+  flex: none;
+  width: 60px;
+  height: 60px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-control);
+  border: 2px solid var(--ink);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.icon-button[aria-pressed="true"] {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+
+.icon-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---------- Scam shield checklist ---------- */
+
+.checks {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.checks li {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 8px;
+  align-items: start;
+}
+
+.checks li > span:first-child {
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.checks li.pass > span:first-child {
+  color: var(--protect);
+}
+
+.checks li.fail > span:first-child {
+  color: var(--danger);
+}

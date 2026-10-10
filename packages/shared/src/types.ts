@@ -55,6 +55,20 @@ export interface PendingChange {
 /** Scam shield verdicts (CLAUDE.md section 9). Rule-based, never decided by AI. */
 export type Verdict = "APPROVE" | "NEEDS_CONFIRMATION" | "BLOCKED";
 
+/** One of Swissquote's checks of a new contact, shown before Face ID. */
+export interface ShieldCheck {
+  label: string;
+  result: "pass" | "fail" | "info";
+  /** Plain language. */
+  detail: string;
+}
+
+/** The scam shield's screening of a contact the client wants to add (where scams happen). */
+export interface ContactScreening {
+  verdict: Verdict;
+  checks: ShieldCheck[];
+}
+
 export interface ShieldResult {
   verdict: Verdict;
   /** Plain-language reasons shown to the client. */

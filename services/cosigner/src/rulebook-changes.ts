@@ -5,9 +5,6 @@
  * cancelled from any device in the meantime. Enforced here; the app only displays it.
  */
 import type { DatabaseSync } from "node:sqlite";
-import { address as btcAddress } from "bitcoinjs-lib";
-import { isAddress } from "viem";
-import { signet } from "@sqw/bitcoin";
 import {
   LOOSENING_DELAY_SECONDS,
   applyChange,
@@ -20,7 +17,7 @@ import {
 import type { alerts as alertsStore } from "./alerts";
 import { PolicyError } from "./bitcoin-policy";
 import { formatChf } from "./format";
-import { isKnownScam, isSanctioned } from "./shield";
+import { screenContact } from "./shield";
 import type { StoredWallet } from "./wallets";
 
 export function describeChange(change: RulebookChange, rulebook: Rulebook): string {
@@ -91,23 +88,9 @@ export function rulebookChanges(db: DatabaseSync, { setRulebook, alerts }: Ruleb
           const { contact } = change;
           if (!contact?.name?.trim() || !contact.id) throw new PolicyError("A new contact needs a name.");
           if (rulebook.contacts.some((c) => c.id === contact.id)) throw new PolicyError(`${contact.name} is already a contact.`);
-          if (!contact.btcAddress && !contact.ethAddress) throw new PolicyError("A new contact needs a Bitcoin or a USDC address.");
-          if (contact.btcAddress) {
-            try {
-              btcAddress.toOutputScript(contact.btcAddress, signet);
-            } catch {
-              throw new PolicyError("This is not a valid Bitcoin address.");
-            }
-          }
-          if (contact.ethAddress && !isAddress(contact.ethAddress)) throw new PolicyError("This is not a valid USDC (Base) address.");
-          for (const address of [contact.btcAddress, contact.ethAddress]) {
-            if (address && isSanctioned(address)) {
-              throw new PolicyError("Swissquote cannot add this address: it is on a sanctions list (Mock list).");
-            }
-            if (address && isKnownScam(address)) {
-              throw new PolicyError("Swissquote cannot add this address: it has been reported as a scam (Mock list).");
-            }
-          }
+          // The same checks the client saw before Face ID (scam shield).
+          const failed = screenContact(contact, rulebook).checks.find((c) => c.result === "fail");
+          if (failed) throw new PolicyError(failed.detail);
           return;
         }
         case "removeContact":

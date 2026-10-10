@@ -146,7 +146,7 @@ function UsdcSlip({ payment }: { payment: UsdcPayment }) {
   );
 }
 
-function UsdcConfirm({
+export function UsdcConfirm({
   profile,
   payment,
   onCancel,
@@ -244,7 +244,7 @@ function UsdcConfirm({
   );
 }
 
-function UsdcSent({ payment, sent }: { payment: UsdcPayment; sent: EthSent }) {
+export function UsdcSent({ payment, sent }: { payment: UsdcPayment; sent: EthSent }) {
   return (
     <Screen
       actions={

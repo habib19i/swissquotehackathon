@@ -31,7 +31,7 @@ import { feeService } from "./fee-service";
 import { hotWallet } from "./hot-wallet";
 import { btcChf, usdcChf } from "./price";
 import { rulebookChanges } from "./rulebook-changes";
-import { screenPayment } from "./shield";
+import { screenContact, screenPayment } from "./shield";
 import { createApp } from "./http";
 import { db } from "./db";
 import { WalletError, publicRecord, walletStore, type StoredWallet } from "./wallets";
@@ -210,6 +210,17 @@ app.post("/wallets/:walletId/shield/usdc", async (req, res) => {
     alerts.add({ walletId: wallet.walletId, type: "payment-blocked", message: `Swissquote stopped a payment from your safe. ${result.reasons.join(" ")}` });
   }
   res.json(result);
+});
+
+/** Scam shield on a contact the client wants to add, shown before Face ID. */
+app.post("/wallets/:walletId/shield/contact", (req, res) => {
+  const contact = req.body?.contact ?? {};
+  res.json(
+    screenContact(
+      { name: String(contact.name ?? ""), btcAddress: contact.btcAddress || undefined, ethAddress: contact.ethAddress || undefined },
+      current(req.params.walletId).rulebook,
+    ),
+  );
 });
 
 // ---------------------------------------------------------------- USDC on Base: account, bundler, paymaster

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { chfToSats, refillAmount, satsToChf } from "@sqw/bitcoin";
 import { chfForUsdc, formatUsdc } from "@sqw/ethereum";
 import { DEFAULT_POCKET_SIZE_CHF, explorer, type Alert, type EthStatus, type WalletRecord } from "@sqw/shared";
-import { CheckIcon, ReceiveIcon, SendIcon, ShieldIcon } from "../components/icons";
+import { ChatIcon, CheckIcon, ReceiveIcon, SendIcon, ShieldIcon } from "../components/icons";
 import { KeyHolders } from "../components/keyholders";
 import { Mock, Screen } from "../components/screen";
 import { RequireWallet } from "../components/wallet-context";
@@ -314,6 +314,10 @@ function Home({ profile }: { profile: WalletProfile }) {
           <ReceiveIcon /> Receive
         </Link>
       </div>
+
+      <Link href="/assistant" className="button secondary">
+        <ChatIcon /> Ask the assistant
+      </Link>
 
       <Link href="/activity" className="button quiet">
         See all activity

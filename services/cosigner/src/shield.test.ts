@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { DEMO_ATTACKER_BTC_ADDRESS, DEMO_ATTACKER_ETH_ADDRESS, DEMO_CONTACTS, defaultRulebook } from "@sqw/shared";
-import { MOCK_KNOWN_SCAM_ADDRESSES, MOCK_SANCTIONED_ADDRESSES, screenPayment } from "./shield";
+import { MOCK_KNOWN_SCAM_ADDRESSES, MOCK_SANCTIONED_ADDRESSES, screenContact, screenPayment } from "./shield";
 
 const rulebook = { ...defaultRulebook(), contacts: DEMO_CONTACTS };
 const leo = DEMO_CONTACTS[0].btcAddress!;
@@ -56,4 +56,24 @@ test("USDC: sanctioned and reported Base addresses are blocked (Mock lists)", ()
   const ethScam = [...MOCK_KNOWN_SCAM_ADDRESSES].find((a) => a.startsWith("0x"))!;
   assert.equal(screenPayment({ address: ethSanctioned.toUpperCase().replace("0X", "0x"), valueChf: 1, rulebook }).verdict, "BLOCKED");
   assert.equal(screenPayment({ address: ethScam, valueChf: 1, rulebook }).verdict, "BLOCKED");
+});
+
+test("adding someone new: every check passes, with a scam warning and the waiting period", () => {
+  const r = screenContact({ name: "Marc", ethAddress: "0x000000000000000000000000000000000000dEaD" }, rulebook);
+  assert.equal(r.verdict, "NEEDS_CONFIRMATION");
+  assert.deepEqual(r.checks.map((c) => c.result), ["pass", "pass", "pass", "info", "info"]);
+  assert.match(r.checks.map((c) => c.detail).join(" "), /scammers often ask/);
+});
+
+test("adding a sanctioned, reported, invalid or already known address is blocked, with the reason", () => {
+  const blocked = (contact: Parameters<typeof screenContact>[0], reason: RegExp) => {
+    const r = screenContact(contact, rulebook);
+    assert.equal(r.verdict, "BLOCKED");
+    assert.match(r.checks.filter((c) => c.result === "fail").map((c) => c.detail).join(" "), reason);
+  };
+  blocked({ name: "X", btcAddress: sanctioned }, /sanctions list/);
+  blocked({ name: "X", btcAddress: scam }, /reported as a scam/);
+  blocked({ name: "X", ethAddress: "0x1234" }, /not a valid digital dollar/);
+  blocked({ name: "X", btcAddress: leo }, /already belongs to Léo/);
+  blocked({ name: "X" }, /needs a Bitcoin or a digital dollar address/);
 });

@@ -1,8 +1,12 @@
 /**
- * Scam shield (CLAUDE.md section 9): Swissquote's rule-based check of a recipient and amount.
- * Rules decide; there is no AI here. Values are always recomputed by Swissquote.
+ * Scam shield (CLAUDE.md section 9): Swissquote's rule-based check of a recipient and amount, and of
+ * every contact the client adds (where scams happen). Rules decide; there is no AI here. Values are
+ * always recomputed by Swissquote.
  */
-import type { Rulebook, ShieldResult } from "@sqw/shared";
+import { address as btcAddress } from "bitcoinjs-lib";
+import { isAddress } from "viem";
+import { signet } from "@sqw/bitcoin";
+import type { Contact, ContactScreening, Rulebook, ShieldCheck, ShieldResult } from "@sqw/shared";
 import { formatChf } from "./format";
 
 /** MOCK sanctions list (a real deployment queries a sanctions screening provider). Lower case. */
@@ -71,4 +75,64 @@ export function screenPayment({ address, valueChf, rulebook }: PaymentCheck): Sh
     );
   }
   return result("APPROVE", `${contact.name} is one of your approved contacts.`);
+}
+
+const validBitcoin = (address: string) => {
+  try {
+    btcAddress.toOutputScript(address, signet);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Swissquote's checks of a new contact, shown to the client before Face ID. Any failed check blocks
+ * the contact; otherwise the client is warned and the waiting period applies.
+ */
+export function screenContact(contact: Pick<Contact, "name" | "btcAddress" | "ethAddress">, rulebook: Rulebook): ContactScreening {
+  const checks: ShieldCheck[] = [];
+  const addresses = [
+    contact.btcAddress && { address: contact.btcAddress, kind: "Bitcoin", valid: validBitcoin(contact.btcAddress) },
+    contact.ethAddress && { address: contact.ethAddress, kind: "digital dollar (Base)", valid: isAddress(contact.ethAddress) },
+  ].filter(Boolean) as { address: string; kind: string; valid: boolean }[];
+
+  if (addresses.length === 0) {
+    checks.push({ label: "Address", result: "fail", detail: "A new contact needs a Bitcoin or a digital dollar address." });
+  }
+  for (const { address, kind, valid } of addresses) {
+    checks.push(
+      valid
+        ? { label: `${kind[0].toUpperCase()}${kind.slice(1)} address`, result: "pass", detail: "A valid address on the test network." }
+        : { label: `${kind[0].toUpperCase()}${kind.slice(1)} address`, result: "fail", detail: `This is not a valid ${kind} address.` },
+    );
+    if (!valid) continue;
+    checks.push(
+      isSanctioned(address)
+        ? { label: "Sanctions screening (Mock list)", result: "fail", detail: "Swissquote cannot add this address: it is on a sanctions list (Mock list)." }
+        : { label: "Sanctions screening (Mock list)", result: "pass", detail: "Not on any sanctions list." },
+      isKnownScam(address)
+        ? { label: "Reported scams (Mock list)", result: "fail", detail: "Swissquote cannot add this address: it has been reported as a scam (Mock list)." }
+        : { label: "Reported scams (Mock list)", result: "pass", detail: "Nobody has reported this address as a scam." },
+    );
+    const owner = rulebook.contacts.find((c) => same(c.btcAddress, address) || same(c.ethAddress, address));
+    if (owner) checks.push({ label: "Already a contact", result: "fail", detail: `This address already belongs to ${owner.name}.` });
+  }
+
+  const blocked = checks.some((c) => c.result === "fail");
+  if (!blocked) {
+    checks.push(
+      {
+        label: "Someone new",
+        result: "info",
+        detail: "You have never paid this address. Only add people you know: scammers often ask to be added as a contact.",
+      },
+      {
+        label: "Waiting period",
+        result: "info",
+        detail: `For your protection, ${contact.name || "this person"} becomes a contact after a waiting period. You are alerted and can cancel it from any device.`,
+      },
+    );
+  }
+  return { verdict: blocked ? "BLOCKED" : "NEEDS_CONFIRMATION", checks };
 }
