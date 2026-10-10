@@ -2,12 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
-import { PARTY_ID, keygen, recoverLostShare, refresh, sign } from "./dkls";
+import { keygen, recoverLostShare, refresh, sign, type Keyshare } from "./node";
+import { PARTY_ID } from "./parties";
 import { bitcoinCompact, ethereumSignature, verifyDigest } from "./signature";
 
 const { phone, cosigner, "recovery-provider": provider } = PARTY_ID;
 
-function signAndVerify(a: Parameters<typeof sign>[0][0], b: Parameters<typeof sign>[0][1], publicKey: Uint8Array) {
+function signAndVerify(a: Keyshare, b: Keyshare, publicKey: Uint8Array) {
   const digest = randomBytes(32);
   const { r, s } = sign([a, b], digest);
   return verifyDigest(bitcoinCompact(r, s), digest, publicKey);

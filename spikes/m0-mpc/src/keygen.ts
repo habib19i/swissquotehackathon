@@ -1,5 +1,5 @@
 /** M0 spike step 1: create a 2-of-3 MPC key and print the addresses to fund. */
-import { keygen } from "@sqw/mpc";
+import { keygen } from "@sqw/mpc/node";
 import { hasShares, loadShare, mpcAddresses, saveShares } from "./wallet";
 
 let publicKey: Uint8Array;

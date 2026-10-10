@@ -8,12 +8,14 @@
     "keygen": "tsx --env-file-if-exists=../../.env src/keygen.ts",
     "send-btc": "tsx --env-file-if-exists=../../.env src/send-btc.ts",
     "send-eth": "tsx --env-file-if-exists=../../.env src/send-eth.ts",
+    "pocket-check": "tsx --env-file-if-exists=../../.env src/pocket-check.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --import tsx --test src/*.test.ts"
   },
   "dependencies": {
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0",
+    "@sqw/bitcoin": "workspace:*",
     "@sqw/mpc": "workspace:*",
     "@sqw/shared": "workspace:*",
     "bitcoinjs-lib": "7.0.2",

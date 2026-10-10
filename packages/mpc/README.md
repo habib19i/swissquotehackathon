@@ -8,14 +8,15 @@
 - **This package** only routes the library's protocol messages and encodes signatures with
   `@noble/curves` (low-S for Bitcoin, recovery bit for Ethereum). No cryptography of our own.
 
-| Function | What it does |
-|---|---|
-| `keygen()` | Distributed key generation; the key never exists in one place |
-| `sign([a, b], digest)` | Any 2 of the 3 holders sign a 32-byte digest |
-| `refresh(shares)` | New shares for the same key (proactive refresh) |
-| `recoverLostShare([cosigner, provider], phone)` | Lost phone: issues a new phone share for the same key |
+| Entry point | Runs in | What it gives |
+|---|---|---|
+| `@sqw/mpc` | browser and Node | `KeygenParty` (one party, serializable between rounds), `coordinateKeygen`, remote/local party handles, NaCl sealing, signature encoding |
+| `@sqw/mpc/server` | services | Express routes `/mpc/identity`, `/mpc/keygen`, `/mpc/keygen/:session/rounds/:n`, SQLite store |
+| `@sqw/mpc/node` | tests, spike | In-process `keygen()`, `sign([a, b], digest)`, `refresh(shares)`, `recoverLostShare(remaining, lostId)` |
 
-Party ids: `0` phone, `1` Swissquote co-signer, `2` recovery provider.
+Party ids: `0` phone, `1` Swissquote co-signer, `2` recovery provider. The phone coordinates the rounds.
+Messages between the two services are sealed with NaCl `box` (tweetnacl); each service fetches the other's
+public key directly, so the phone relays them without being able to read or forge them.
 
 Old shares still combine with *other old shares* after a refresh, so every holder must delete its
 previous share once a refresh or recovery completes. The services enforce this from M2 on.

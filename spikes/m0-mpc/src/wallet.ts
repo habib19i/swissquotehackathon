@@ -8,7 +8,8 @@ import { networks, payments } from "bitcoinjs-lib";
 import { publicKeyToAddress } from "viem/accounts";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
-import { Keyshare, PARTY_ID } from "@sqw/mpc";
+import { PARTY_ID } from "@sqw/mpc";
+import { Keyshare } from "@sqw/mpc/node";
 import type { ShareHolder } from "@sqw/shared";
 
 const SHARES_DIR = fileURLToPath(new URL("../.shares/", import.meta.url));

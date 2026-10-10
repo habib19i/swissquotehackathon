@@ -3,10 +3,13 @@
  * Holds MPC share 2, runs the scam shield, enforces rulebook delays, pays fees on the Premium plan.
  * Runs as its own process with its own database (CLAUDE.md section 4).
  */
+import { PARTY_ID } from "@sqw/mpc";
+import { mpcRouter, peerKeysFrom, sqliteIdentity, sqliteMpcStore } from "@sqw/mpc/server";
 import { createApp, notImplemented } from "./http";
-import "./db";
+import { db } from "./db";
 
 const PORT = Number(process.env.COSIGNER_PORT ?? 4001);
+const RECOVERY_URL = process.env.RECOVERY_URL ?? "http://localhost:4002";
 const app = createApp();
 const WS2 = "workstream 2 (Swissquote Co-signer)";
 
@@ -26,6 +29,16 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// MPC share 2. Messages to the recovery provider are sealed with its key, fetched directly from it.
+app.use(
+  mpcRouter({
+    partyId: PARTY_ID.cosigner,
+    store: sqliteMpcStore(db),
+    identity: sqliteIdentity(db),
+    peerPublicKey: peerKeysFrom({ [PARTY_ID["recovery-provider"]]: RECOVERY_URL }),
+  }),
+);
 
 app.post("/shield/payment", notImplemented(WS2));
 app.get("/wallets/:walletId/rulebook", notImplemented(WS2));

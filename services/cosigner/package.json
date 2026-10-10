@@ -10,6 +10,7 @@
     "test": "echo \"no tests yet\""
   },
   "dependencies": {
+    "@sqw/mpc": "workspace:*",
     "@sqw/shared": "workspace:*",
     "express": "^5.3.0"
   },

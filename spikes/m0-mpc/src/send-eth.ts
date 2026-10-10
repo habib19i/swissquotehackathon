@@ -5,7 +5,8 @@
 import { createPublicClient, http, keccak256, serializeTransaction, type TransactionSerializableEIP1559 } from "viem";
 import { baseSepolia } from "viem/chains";
 import { hexToBytes } from "@noble/hashes/utils.js";
-import { ethereumSignature, sign } from "@sqw/mpc";
+import { ethereumSignature } from "@sqw/mpc";
+import { sign } from "@sqw/mpc/node";
 import { explorer } from "@sqw/shared";
 import { loadShare, mpcAddresses, run } from "./wallet";
 

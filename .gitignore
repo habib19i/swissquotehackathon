@@ -13,3 +13,6 @@ contracts/lib/
 
 # M0 spike: local MPC shares (never commit)
 spikes/m0-mpc/.shares/
+
+# Copied from node_modules at dev/build time
+apps/web/public/wasm/

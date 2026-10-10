@@ -5,7 +5,8 @@ import { Psbt } from "bitcoinjs-lib";
 import { keccak256, recoverTransactionAddress, serializeTransaction } from "viem";
 import { baseSepolia } from "viem/chains";
 import { hexToBytes } from "@noble/hashes/utils.js";
-import { bitcoinCompact, ethereumSignature, keygen, sign, verifyDigest } from "@sqw/mpc";
+import { bitcoinCompact, ethereumSignature, verifyDigest } from "@sqw/mpc";
+import { keygen, sign } from "@sqw/mpc/node";
 import { mpcAddresses, signet } from "./wallet";
 
 const [phone, cosigner, provider] = keygen();

@@ -3,7 +3,8 @@
  * and broadcast it. Usage: pnpm send-btc [destination-address]   (default: back to itself)
  */
 import { Psbt } from "bitcoinjs-lib";
-import { bitcoinCompact, sign, verifyDigest } from "@sqw/mpc";
+import { bitcoinCompact, verifyDigest } from "@sqw/mpc";
+import { sign } from "@sqw/mpc/node";
 import { explorer } from "@sqw/shared";
 import { loadShare, mpcAddresses, run, signet } from "./wallet";
 

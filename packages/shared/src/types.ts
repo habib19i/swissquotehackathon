@@ -15,6 +15,8 @@ export interface Contact {
   id: string;
   /** Display name shown in the UI, e.g. "Léo". Never show raw addresses on main screens. */
   name: string;
+  /** Plain-language relation shown under the name, e.g. "Son". */
+  relation?: string;
   btcAddress?: string;
   /** Checksummed 0x address on Base Sepolia. */
   ethAddress?: `0x${string}`;
