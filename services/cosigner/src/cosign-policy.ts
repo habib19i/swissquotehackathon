@@ -4,11 +4,11 @@
  */
 import { hexToBytes } from "@noble/hashes/utils.js";
 import { address as btcAddress } from "bitcoinjs-lib";
-import { balanceOf, esplora, signet } from "@sqw/bitcoin";
+import { balanceOf, esplora, signet, spendingPocket } from "@sqw/bitcoin";
 import { ownershipDigest, ownershipMessage } from "@sqw/bitcoin/ownership";
 import { MpcError } from "@sqw/mpc/server";
 import type { BtcSpendPurpose, CosignRequest } from "@sqw/shared";
-import { reviewBtcSpend, savingsInputDigest, PolicyError, type ReviewContext } from "./bitcoin-policy";
+import { reviewBtcSpend, mpcInputDigest, PolicyError, type ReviewContext } from "./bitcoin-policy";
 import { btcChf } from "./price";
 import type { StoredWallet } from "./wallets";
 
@@ -37,6 +37,7 @@ export async function reviewContext(wallet: StoredWallet): Promise<ReviewContext
     btcChf: await btcChf(),
     prevout: prevoutFromNetwork,
     feeWalletAddress,
+    oldPockets: wallet.oldPocketKeys.map((key) => spendingPocket(hexToBytes(key), hexToBytes(wallet.mpcPublicKey))),
     pocketBalance: async () => {
       const { confirmed, pending } = balanceOf(await net.utxos(wallet.pocketAddress));
       return confirmed + pending;
@@ -69,7 +70,7 @@ export async function authorizeCosign(wallet: StoredWallet, request: CosignReque
       if (verdict === "NEEDS_CONFIRMATION" && !request.clientConfirmed) {
         throw new MpcError(403, `Swissquote needs your confirmation first. ${reasons.join(" ")}`);
       }
-      return savingsInputDigest(spend, request.inputIndex, mpcKey);
+      return mpcInputDigest(spend, request.inputIndex, mpcKey);
     }
 
     case "ownership-proof": {

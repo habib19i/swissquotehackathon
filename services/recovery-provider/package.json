@@ -7,11 +7,16 @@
     "dev": "tsx watch --env-file-if-exists=../../.env src/index.ts",
     "start": "tsx --env-file-if-exists=../../.env src/index.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "echo \"no tests yet\""
+    "test": "node --import tsx --test src/*.test.ts"
   },
   "dependencies": {
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0",
+    "@simplewebauthn/server": "14.0.3",
+    "@sqw/bitcoin": "workspace:*",
     "@sqw/mpc": "workspace:*",
     "@sqw/shared": "workspace:*",
+    "bitcoinjs-lib": "7.0.2",
     "express": "^5.3.0"
   },
   "devDependencies": {

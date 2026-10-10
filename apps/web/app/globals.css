@@ -145,6 +145,7 @@ a {
   margin-left: auto;
   font-size: var(--text-s);
   color: var(--ink-soft);
+  text-decoration: none;
 }
 
 .back {
@@ -603,4 +604,36 @@ button.row {
 
 .slip-note {
   padding: 0 20px 16px;
+}
+
+/* ---------- Face check (mock) ---------- */
+
+.face-scan {
+  align-self: center;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  border: 3px solid var(--protect);
+  display: grid;
+  place-items: center;
+  color: var(--ink);
+  background: var(--surface);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .face-scan {
+    animation: face-scan 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes face-scan {
+  50% {
+    box-shadow: 0 0 0 10px var(--protect-bg);
+  }
+}
+
+/* ---------- Mock e-banking (the client's other device) ---------- */
+
+.ebanking {
+  max-width: 720px;
 }

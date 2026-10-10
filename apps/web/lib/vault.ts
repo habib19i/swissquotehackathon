@@ -18,6 +18,8 @@ interface StoredVault {
 
 const VAULT = "sqw.vault";
 const DEVICE_KEY = "sqw.vault-device-key";
+/** Everything the vault keeps in this browser. */
+export const VAULT_STORAGE_KEYS = [VAULT, DEVICE_KEY];
 const encoder = new TextEncoder();
 
 /** Vault key derived from the passkey's PRF secret (HKDF-SHA256), bound to this wallet. */

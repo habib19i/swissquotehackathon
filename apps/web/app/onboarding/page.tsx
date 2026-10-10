@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { DklsKeyshare } from "@sqw/mpc";
 import type { Plan } from "@sqw/shared";
 import { CheckIcon, FaceIcon } from "../../components/icons";
 import { KeyHolders } from "../../components/keyholders";
 import { PlanChoice } from "../../components/plan-choice";
+import { RecoveryKeySetup } from "../../components/recovery-key-setup";
 import { ProtectedBySwissquote, Screen } from "../../components/screen";
 import { useWallet } from "../../components/wallet-context";
 import { cosigner } from "../../lib/cosigner";
@@ -15,9 +17,9 @@ import { passkeysSupported, type WalletPasskey } from "../../lib/passkey";
 import type { WalletProfile } from "../../lib/profile";
 import { finishSetup } from "../../lib/setup";
 
-type Step = "intro" | "face-id" | "creating" | "verifying" | "plan" | "ready";
+type Step = "intro" | "face-id" | "creating" | "verifying" | "recovery-key" | "plan" | "ready";
 
-/** Onboarding (CLAUDE.md section 8): Open my safe, Face ID, key creation, ownership proof, plan, ready. */
+/** Onboarding (CLAUDE.md section 8): Open my safe, Face ID, key creation, ownership proof, recovery key, plan, ready. */
 export default function OnboardingPage() {
   const router = useRouter();
   const { loading, client, profile, reload } = useWallet();
@@ -27,12 +29,22 @@ export default function OnboardingPage() {
   const [round, setRound] = useState(0);
   const [created, setCreated] = useState<{ profile: WalletProfile; share: DklsKeyshare }>();
   const [plan, setPlan] = useState<Plan>("premium");
+  /** Swissquote already knows a safe for this client: offer to bring it back rather than open a new one. */
+  const [existingSafe, setExistingSafe] = useState(false);
 
   useEffect(() => {
     if (loading) return;
     if (!client) router.replace("/login");
     else if (profile && step === "intro") router.replace("/");
   }, [loading, client, profile, step, router]);
+
+  useEffect(() => {
+    if (!client || profile) return;
+    cosigner
+      .walletOfClient(client.clientNumber)
+      .then(() => setExistingSafe(true))
+      .catch(() => setExistingSafe(false));
+  }, [client, profile]);
 
   async function enableFaceId() {
     setError(undefined);
@@ -68,7 +80,7 @@ export default function OnboardingPage() {
     setStep("verifying");
     try {
       await finishSetup(safe.profile, safe.share);
-      setStep("plan");
+      setStep("recovery-key");
     } catch (err) {
       setError(`Swissquote could not verify your safe yet: ${(err as Error).message}`);
     }
@@ -83,6 +95,29 @@ export default function OnboardingPage() {
     } catch (err) {
       setError(`Your plan could not be saved: ${(err as Error).message}`);
     }
+  }
+
+  if (step === "intro" && existingSafe) {
+    return (
+      <Screen
+        actions={
+          <>
+            <Link href="/recover" className="button">
+              Bring my safe to this phone
+            </Link>
+            <button className="button quiet" onClick={() => setExistingSafe(false)}>
+              Open a new safe instead
+            </button>
+          </>
+        }
+      >
+        <h1>You already have a safe</h1>
+        <p className="lead">
+          Swissquote knows a safe for your account, but this phone does not hold it. If you lost your phone or changed
+          it, bring your safe here with your recovery key.
+        </p>
+      </Screen>
+    );
   }
 
   if (step === "intro") {
@@ -135,6 +170,14 @@ export default function OnboardingPage() {
           </p>
         )}
         {error && <p className="notice error" role="alert">{error}</p>}
+      </Screen>
+    );
+  }
+
+  if (step === "recovery-key") {
+    return (
+      <Screen>
+        <RecoveryKeySetup profile={created!.profile} onDone={() => setStep("plan")} />
       </Screen>
     );
   }

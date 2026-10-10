@@ -5,19 +5,22 @@
  * - Larger payments: the Savings safe, signed by the phone and Swissquote after its checks.
  * - After a payment, a low pocket is refilled from the Savings safe with the same Face ID.
  * - Premium plan: Swissquote's fee service adds a coin of its own to pay the network fee.
+ * - Swissquote gone: the phone and the recovery provider sign Savings payments, with the recovery key.
  */
 import { equalBytes } from "@noble/curves/utils.js";
 import { hexToBytes } from "@noble/hashes/utils.js";
-import { Psbt } from "bitcoinjs-lib";
+import { Psbt, Transaction } from "bitcoinjs-lib";
 import {
   InsufficientFundsError,
   SponsorCoinTooSmallError,
   balanceOf,
+  buildPocketPayment,
   buildSpend,
   buildSponsoredSpend,
   chfToSats,
   coinsAfter,
   esplora,
+  finalizePocketInputs,
   maxPocketAmount,
   maxSavingsAmount,
   pocketSource,
@@ -27,16 +30,18 @@ import {
   signAllInputs,
   signPocketInputs,
   signet,
+  spendingPocket,
   type Balance,
   type Spend,
   type SpendSource,
   type Utxo,
 } from "@sqw/bitcoin";
-import { bitcoinCompact, verifyDigest, type DklsKeyshare } from "@sqw/mpc";
+import { bitcoinCompact, verifyDigest, type DklsKeyshare, type Signature } from "@sqw/mpc";
 import { DEFAULT_POCKET_SIZE_CHF, type BtcReview, type BtcSpendPurpose, type Contact } from "@sqw/shared";
-import { cosigner, cosignWithSwissquote } from "./cosigner";
+import { cosigner, cosignWithSwissquote, swissquoteOnline } from "./cosigner";
 import { loadDkls } from "./dkls";
 import { pocketOf, type WalletProfile } from "./profile";
+import { cosignWithProvider, presentRecoveryKey, provider } from "./provider";
 import { ESPLORA_URL } from "./services";
 import { unlockVault } from "./vault";
 
@@ -121,7 +126,8 @@ export class NotEnoughInOnePocketError extends Error {
 
 export type PreparedPayment =
   | { from: "pocket"; contact: Contact; draft: Draft }
-  | { from: "savings"; contact: Contact; draft: Draft; review: BtcReview };
+  /** Savings payments: reviewed and co-signed by Swissquote, or, if Swissquote is gone, by the recovery provider. */
+  | { from: "savings"; contact: Contact; draft: Draft; review?: BtcReview; via: "swissquote" | "recovery-provider" };
 
 /**
  * Builds the payment from the right pocket, so the confirmation card shows the exact amount and fee.
@@ -153,19 +159,31 @@ export async function preparePayment(
     throw new NotEnoughInOnePocketError(pocketMax, savingsMax);
   }
   const built = await draft(profile, savingsSource(safe), savingsUtxos, contact.btcAddress, amount);
+  if (!(await swissquoteOnline())) return { from: "savings", contact, draft: built, via: "recovery-provider" };
   const review = await cosigner.review(profile.walletId, built.spend.psbt.toBase64(), "savings-payment");
-  return { from: "savings", contact, draft: built, review };
+  return { from: "savings", contact, draft: built, review, via: "swissquote" };
 }
 
 // ---------------------------------------------------------------- signing and broadcasting
 
-/** Signs and finalizes the Savings safe inputs with the phone's share and Swissquote's, one MPC session each. */
-async function signSavingsInputs(
+/** Phone + one other key holder sign a 32-byte digest; the holder reads its own rules from `request`. */
+type Cosign = (share: DklsKeyshare, request: Record<string, unknown>, digest: Uint8Array) => Promise<Signature>;
+
+const withSwissquote =
+  (profile: WalletProfile): Cosign =>
+  (share, request, digest) =>
+    cosignWithSwissquote(share, profile.walletId, request as never, digest);
+
+/**
+ * Signs every input of the client's MPC key, one MPC session each (Swissquote's fee coin, if any, is
+ * left to Swissquote). The caller finalizes: Savings inputs by default, pocket inputs per branch.
+ */
+async function signMpcInputs(
   profile: WalletProfile,
   share: DklsKeyshare,
   { spend, sponsor }: Draft,
-  purpose: BtcSpendPurpose,
-  clientConfirmed = false,
+  cosign: Cosign,
+  request: Record<string, unknown>,
 ) {
   const mpcKey = hexToBytes(profile.mpcPublicKey);
   await signAllInputs(
@@ -173,15 +191,43 @@ async function signSavingsInputs(
     (inputIndex) => ({
       publicKey: mpcKey,
       sign: async (hash: Uint8Array) => {
-        const request = { kind: "btc-input" as const, purpose, psbt: spend.psbt.toBase64(), inputIndex, clientConfirmed };
-        const { r, s } = await cosignWithSwissquote(share, profile.walletId, request, hash);
+        const { r, s } = await cosign(share, { ...request, kind: "btc-input", psbt: spend.psbt.toBase64(), inputIndex }, hash);
         return bitcoinCompact(r, s);
       },
     }),
     (pk, hash, sig) => verifyDigest(sig, hash, pk),
     { except: sponsor?.inputIndex },
   );
+}
+
+const finalizeClientInputs = ({ spend, sponsor }: Draft) => {
   for (let i = 0; i < spend.psbt.inputCount; i++) if (i !== sponsor?.inputIndex) spend.psbt.finalizeInput(i);
+};
+
+/** Savings safe inputs, with Swissquote's review. */
+async function signSavingsInputs(
+  profile: WalletProfile,
+  share: DklsKeyshare,
+  built: Draft,
+  purpose: BtcSpendPurpose,
+  clientConfirmed = false,
+) {
+  await signMpcInputs(profile, share, built, withSwissquote(profile), { purpose, clientConfirmed });
+  finalizeClientInputs(built);
+}
+
+/**
+ * Swissquote gone: the client approves this exact transaction with the RECOVERY key, then the phone
+ * and the recovery provider sign it (CLAUDE.md section 8).
+ */
+async function signSavingsWithProvider(profile: WalletProfile, share: DklsKeyshare, built: Draft) {
+  const txid = Transaction.fromBuffer(built.spend.psbt.data.getTransaction()).getId();
+  const { requestId, options } = await provider.offlineApproval(profile.walletId, txid);
+  const assertion = await presentRecoveryKey(options);
+  const { approvalToken } = await provider.verifyOfflineApproval(profile.walletId, requestId, assertion);
+  const cosign: Cosign = (s, request, digest) => cosignWithProvider(s, profile.walletId, request, digest);
+  await signMpcInputs(profile, share, built, cosign, { approvalToken });
+  finalizeClientInputs(built);
 }
 
 /**
@@ -238,7 +284,8 @@ export async function sendPayment(
       txid = await broadcast(profile, payment.draft);
       pocketCoins = coinsAfter(pocketCoins, spend, txid);
     } else {
-      await signSavingsInputs(profile, share, payment.draft, "savings-payment", clientConfirmed);
+      if (payment.via === "recovery-provider") await signSavingsWithProvider(profile, share, payment.draft);
+      else await signSavingsInputs(profile, share, payment.draft, "savings-payment", clientConfirmed);
       txid = await broadcast(profile, payment.draft);
       savingsCoins = coinsAfter(savingsCoins, spend, txid);
     }
@@ -289,6 +336,27 @@ export async function moveExcessToSavings(profile: WalletProfile, amount: bigint
     signPocketInputs(built.spend.psbt, pocketKey);
     return broadcast(profile, built);
   });
+}
+
+/**
+ * After a recovery: the old Spending pocket (its key was on the lost phone) is swept into the new
+ * pocket through the script's MPC branch, signed by the new phone and Swissquote. Returns the txid,
+ * or undefined if the old pocket was empty.
+ */
+export async function sweepOldPocket(
+  profile: WalletProfile,
+  share: DklsKeyshare,
+  oldPocketPublicKey: string,
+): Promise<string | undefined> {
+  const oldPocket = spendingPocket(hexToBytes(oldPocketPublicKey), hexToBytes(profile.mpcPublicKey));
+  const [utxos, feeRate] = await Promise.all([net.utxos(oldPocket.address), net.feeRate()]);
+  const amount = maxPocketAmount(oldPocket, utxos, feeRate);
+  if (amount === 0n) return undefined;
+
+  const sweep: Draft = { spend: buildPocketPayment({ pocket: oldPocket, utxos, to: profile.pocketAddress, amount, feeRate }) };
+  await signMpcInputs(profile, share, sweep, withSwissquote(profile), { purpose: "pocket-sweep" });
+  finalizePocketInputs(sweep.spend.psbt, "mpc");
+  return broadcast(profile, sweep);
 }
 
 /** Unlocks the phone's share (Face ID) for a one-off MPC operation such as finishing setup. */

@@ -2,14 +2,15 @@
  * Contracts between the parts of the system. Every workstream codes against these.
  * The MPC protocol itself (keygen, sign, sealing) lives in @sqw/mpc.
  */
-import type { Plan, RecoveryRequest, ShieldResult, Verdict } from "./types";
+import type { Plan, RulebookChange, ShieldResult, Verdict } from "./types";
 
 // ---------------------------------------------------------------------------
 // What the phone asks a key holder to co-sign (the `request` of POST /mpc/sign).
 // The holder checks it against its own rules and computes the digest itself.
 // ---------------------------------------------------------------------------
 
-export type BtcSpendPurpose = "savings-payment" | "pocket-refill";
+/** "pocket-sweep": after a recovery, the old Spending pocket is emptied into the new one with the MPC key. */
+export type BtcSpendPurpose = "savings-payment" | "pocket-refill" | "pocket-sweep";
 
 export type CosignRequest =
   | {
@@ -21,7 +22,9 @@ export type CosignRequest =
       /** Set when the client accepted a NEEDS_CONFIRMATION verdict on the confirmation card. */
       clientConfirmed?: boolean;
     }
-  | { kind: "ownership-proof" };
+  | { kind: "ownership-proof" }
+  /** A rulebook change; loosening changes then wait for the delay. `nonce` makes each request unique. */
+  | { kind: "rulebook-change"; change: RulebookChange; nonce: string };
 
 // ---------------------------------------------------------------------------
 // Swissquote co-signer service (services/cosigner), reached at /svc/cosigner from the app.
@@ -108,46 +111,47 @@ export interface BtcReview extends ShieldResult {
   feeChf: number;
 }
 
+export type AlertType =
+  | "recovery-started"
+  | "recovery-cancelled"
+  | "recovery-refused"
+  | "recovery-completed"
+  | "rulebook-change-requested"
+  | "rulebook-change-cancelled"
+  | "rulebook-change-applied"
+  | "payment-blocked";
+
+/** The Watcher's alerts, sent on every channel (mocked on screen). */
 export interface Alert {
+  id: number;
   walletId: string;
-  type:
-    | "recovery-started"
-    | "recovery-cancelled"
-    | "recovery-completed"
-    | "contact-add-requested"
-    | "limit-raise-requested"
-    | "change-applied"
-    | "payment-blocked";
-  message: string; // plain language
-  at: string; // ISO timestamp
+  type: AlertType;
+  /** Plain language. */
+  message: string;
+  at: string;
+  /** For alerts the client can act on: the change or recovery to cancel. */
+  changeId?: string;
+  recoveryId?: string;
 }
 
 // ---------------------------------------------------------------------------
-// Independent recovery provider (services/recovery-provider). Base URL: RECOVERY_URL.
+// Independent recovery provider (services/recovery-provider), reached at /svc/recovery from the app.
 // ---------------------------------------------------------------------------
 
 export const RECOVERY_ROUTES = {
   health: "GET /health",
-  /** Register the client's RECOVERY passkey (different from the wallet passkey). */
-  registerRecoveryPasskey: "POST /wallets/:walletId/recovery-passkey",
-  /** Start recovery from a new phone. Returns RecoveryRequest. */
+  /** Registration options for the RECOVERY passkey. Body: { clientNumber, kind }. */
+  recoveryKeyOptions: "POST /wallets/:walletId/recovery-key/options",
+  /** Register the RECOVERY passkey (WebAuthn registration response). Write-once. */
+  registerRecoveryKey: "POST /wallets/:walletId/recovery-key",
+  getRecoveryKey: "GET /wallets/:walletId/recovery-key",
+  /** Start recovery from a new phone. Returns { recovery, options } (WebAuthn options for the recovery key). */
   startRecovery: "POST /wallets/:walletId/recoveries",
-  /** Submit the recovery passkey assertion + Swissquote face-check attestation. */
+  /** Recovery key assertion + Swissquote's face-check attestation. Both valid: the waiting period starts. */
   verifyRecovery: "POST /recoveries/:recoveryId/verify",
-  /** Cancel from any device or key the real client still controls. */
+  /** Cancel during the waiting period, from any device the real client still controls. */
   cancelRecovery: "POST /recoveries/:recoveryId/cancel",
   getRecovery: "GET /recoveries/:recoveryId",
-  /** After the waiting period: run the MPC refresh with the co-signer. */
-  completeRecovery: "POST /recoveries/:recoveryId/complete",
+  /** Swissquote offline: WebAuthn options so the recovery key approves a phone + provider signature. */
+  offlineApproval: "POST /wallets/:walletId/offline-approval",
 } as const;
-
-export interface RecoveryProviderApi {
-  startRecovery(walletId: string, newPhoneDeviceId: string): Promise<RecoveryRequest>;
-  verifyRecovery(
-    recoveryId: string,
-    proof: { recoveryPasskeyAssertion: unknown; faceCheckAttestation: unknown },
-  ): Promise<RecoveryRequest>;
-  cancelRecovery(recoveryId: string): Promise<RecoveryRequest>;
-  getRecovery(recoveryId: string): Promise<RecoveryRequest>;
-  completeRecovery(recoveryId: string): Promise<RecoveryRequest>;
-}

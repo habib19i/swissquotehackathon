@@ -4,6 +4,7 @@
  * OpenZeppelin's MerkleProof library in the Solidity validation module.
  */
 import { StandardMerkleTree } from "@openzeppelin/merkle-tree";
+import { sha256 } from "@noble/hashes/sha2.js";
 import type { ChangeDirection, Contact, Rulebook, RulebookChange } from "./types";
 
 export const DEFAULT_DAILY_LIMIT_CHF = 100;
@@ -83,4 +84,12 @@ export function applyChange(current: Rulebook, change: RulebookChange): Rulebook
     case "unfreeze":
       return { ...current, frozen: false };
   }
+}
+
+/**
+ * What the MPC key signs to approve a rulebook change: bound to one wallet and one request (`nonce`,
+ * which is also the change's id). The phone and Swissquote compute it independently.
+ */
+export function rulebookChangeDigest(walletId: string, change: RulebookChange, nonce: string): Uint8Array {
+  return sha256(new TextEncoder().encode(JSON.stringify(["swissquote-rulebook-change-v1", walletId, change, nonce])));
 }

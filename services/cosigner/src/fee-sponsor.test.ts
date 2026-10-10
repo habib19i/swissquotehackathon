@@ -14,7 +14,7 @@ import {
   type Utxo,
 } from "@sqw/bitcoin";
 import { DEMO_CONTACTS, defaultRulebook, type WalletRecord } from "@sqw/shared";
-import { PolicyError, reviewBtcSpend, savingsInputDigest, type Prevout } from "./bitcoin-policy";
+import { PolicyError, reviewBtcSpend, mpcInputDigest, type Prevout } from "./bitcoin-policy";
 import { checkSponsoredTx, type SponsorContext } from "./fee-sponsor";
 
 const key = () => secp256k1.getPublicKey(secp256k1.utils.randomSecretKey(), true);
@@ -98,6 +98,6 @@ test("a sponsored Savings payment passes Swissquote's review, and the MPC key ne
     feeWalletAddress: feeWallet.address,
   });
   assert.equal(reviewed.review.verdict, "APPROVE");
-  assert.deepEqual([...reviewed.savingsInputs], [0]);
-  assert.throws(() => savingsInputDigest(reviewed, 1, mpcKey), PolicyError);
+  assert.deepEqual([...reviewed.mpcInputs.keys()], [0]);
+  assert.throws(() => mpcInputDigest(reviewed, 1, mpcKey), PolicyError);
 });

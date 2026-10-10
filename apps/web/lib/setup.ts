@@ -4,7 +4,8 @@
  */
 import type { DklsKeyshare } from "@sqw/mpc";
 import type { Plan, WalletRecord } from "@sqw/shared";
-import { CosignerError, cosigner } from "./cosigner";
+import { cosigner } from "./cosigner";
+import { ServiceError } from "./http";
 import { proveOwnership } from "./ownership";
 import type { WalletProfile } from "./profile";
 
@@ -13,7 +14,7 @@ export async function swissquoteRecord(walletId: string): Promise<WalletRecord |
   try {
     return await cosigner.wallet(walletId);
   } catch (err) {
-    if (err instanceof CosignerError && err.status === 404) return undefined;
+    if (err instanceof ServiceError && err.status === 404) return undefined;
     throw err;
   }
 }

@@ -18,7 +18,9 @@ export function Screen({
           <span className="brand-mark" aria-hidden="true" />
           Swissquote Wallet
         </Link>
-        <span className="prototype-tag">Hackathon prototype</span>
+        <Link href="/demo" className="prototype-tag" title="Open the demo panel">
+          Hackathon prototype
+        </Link>
       </header>
       {back && (
         <Link href={back.href} className="back">

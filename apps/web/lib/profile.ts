@@ -24,7 +24,7 @@ export interface WalletProfile {
   createdAt: string;
 }
 
-const PROFILE = "sqw.profile";
+export const PROFILE = "sqw.profile";
 const CLIENT = "sqw.client";
 
 export const loadProfile = () => get<WalletProfile>(PROFILE);
@@ -38,3 +38,4 @@ export const logout = () => del(CLIENT);
 export function pocketOf(profile: WalletProfile) {
   return spendingPocket(hexToBytes(profile.pocketPublicKey), hexToBytes(profile.mpcPublicKey));
 }
+

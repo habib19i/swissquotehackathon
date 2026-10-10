@@ -10,6 +10,7 @@
     "send-eth": "tsx --env-file-if-exists=../../.env src/send-eth.ts",
     "pocket-check": "tsx --env-file-if-exists=../../.env src/pocket-check.ts",
     "m2-check": "tsx --env-file-if-exists=../../.env src/m2-check.ts",
+    "m3-check": "tsx --env-file-if-exists=../../.env src/m3-check.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --import tsx --test src/*.test.ts"
   },

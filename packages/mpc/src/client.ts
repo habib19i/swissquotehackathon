@@ -28,6 +28,26 @@ export function remoteKeygenParty(baseUrl: string, partyId: number, walletId: st
 }
 
 /**
+ * A remote holder taking part in lost-share recovery. `request` is the holder's evidence that the
+ * recovery is legitimate (e.g. a recovery id); the holder checks it before joining.
+ */
+export function remoteRecoveryParty(
+  baseUrl: string,
+  partyId: number,
+  walletId: string,
+  sessionId: string,
+  lostPartyId: number,
+  request: unknown,
+): PartyHandle {
+  return {
+    partyId,
+    start: async () =>
+      (await post<{ messages: WireMessage[] }>(`${baseUrl}/mpc/recover`, { walletId, sessionId, lostPartyId, request })).messages,
+    round: (n: number, input: RoundInput) => post<RoundOutput>(`${baseUrl}/mpc/keygen/${sessionId}/rounds/${n}`, input),
+  };
+}
+
+/**
  * A remote holder asked to co-sign. `request` tells it what is being signed (e.g. a PSBT input);
  * the holder checks it against its own rules and computes the digest itself.
  */

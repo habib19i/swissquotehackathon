@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DEMO_CLIENT } from "@sqw/shared";
 import { Mock, Screen } from "../../components/screen";
@@ -22,7 +23,16 @@ export default function LoginPage() {
 
   return (
     <form onSubmit={logIn} style={{ display: "contents" }}>
-      <Screen actions={<button className="button">Log in</button>}>
+      <Screen
+        actions={
+          <>
+            <button className="button">Log in</button>
+            <Link href="/recover" className="button quiet">
+              I lost my phone
+            </Link>
+          </>
+        }
+      >
         <h1>Log in to your Swissquote account</h1>
         <p className="lead">Your identity is already verified with Swissquote, so there is nothing else to fill in.</p>
         <div className="field">

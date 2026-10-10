@@ -63,25 +63,16 @@ export interface ShieldResult {
   valueChf: number;
 }
 
-/** A payment draft, e.g. produced by the payment assistant or the Send screen. */
-export interface PaymentDraft {
-  recipientContactId: string;
-  amount: string; // decimal string in the asset's unit, e.g. "0.0005" or "50"
-  asset: Asset;
-  pocket: Pocket;
-}
-
-export interface FeeQuote {
-  paidBy: "swissquote" | "client";
-  amount: string;
-  asset: Asset;
-}
+/** Where the RECOVERY passkey lives (CLAUDE.md section 5). */
+export type RecoveryKeyKind = "security-key" | "synced";
 
 export type RecoveryStatus =
-  | "awaiting-recovery-passkey"
-  | "awaiting-face-check"
+  /** Started from a new phone; waits for the recovery key and Swissquote's face check. */
+  | "awaiting-verification"
+  /** Verified; the real client can still cancel until `waitUntil`. */
   | "waiting-period"
   | "cancelled"
+  /** Refused: missing or wrong recovery key, or failed face check. */
   | "refused"
   | "completed";
 
@@ -91,14 +82,17 @@ export interface RecoveryRequest {
   status: RecoveryStatus;
   /** ISO timestamp when the waiting period ends. */
   waitUntil?: string;
-  /** Plain-language reason when refused (attacker mode shows these). */
-  reason?: string;
+  /** Plain-language reasons when refused (attacker mode shows these). */
+  reasons?: string[];
+  createdAt: string;
 }
 
-export interface WalletSummary {
+/** MOCK face check: Swissquote's signed statement about a liveness check against the client's KYC photo. */
+export interface FaceCheckAttestation {
   walletId: string;
-  plan: Plan;
-  btc: { savingsAddress: string; spendingAddress: string };
-  eth?: { smartAccount: `0x${string}` };
-  ownershipVerified: boolean;
+  recoveryId: string;
+  result: "match" | "no-match";
+  at: string;
+  /** Hex BIP-340 Schnorr signature by Swissquote's attestation key over the JSON of the fields above. */
+  signature: string;
 }

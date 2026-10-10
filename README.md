@@ -2,7 +2,7 @@
 
 A self-custody wallet Swissquote could launch for its clients: **their keys, their control, one step away from their Swissquote account.** Built for the Swissquote Wallet Challenge (EPFL, October 2026).
 
-> Status: M2 done (Savings safe with Swissquote's checks, pocket refill, Premium fees, see below). The full spec lives in [`CLAUDE.md`](CLAUDE.md). The README sections required by the brief (custody and threat model, architecture diagram, Travel Rule, business model, bonus topics, AI tools) are filled in by workstream 5.
+> Status: M3 done: the core story works end to end on signet (create, pay, lose the phone, recover). See below. The full spec lives in [`CLAUDE.md`](CLAUDE.md). The README sections required by the brief (custody and threat model, architecture diagram, Travel Rule, business model, bonus topics, AI tools) are filled in by workstream 5.
 
 ## The idea in one paragraph
 
@@ -151,14 +151,61 @@ account holds; it collects what they receive every 10 minutes, so test bitcoin k
 network fees are used up. Fund it once from a signet faucet (Plan and settings shows its address and
 balance), ideally the day before a demo: faucet payouts often sit on long unconfirmed chains until a block.
 
+## Recovery, attacker mode, Swissquote offline (M3): the core story
+
+**Lose the phone, keep the safe.** On a new phone the client logs in to Swissquote (mock), creates a new
+Face ID passkey, presents the **recovery key** (a second passkey registered only with the recovery
+provider: a security key by default, or a synced passkey with a warning) and passes Swissquote's face check
+(mock liveness; Swissquote signs the result with BIP-340 Schnorr). The provider verifies both, alerts the
+client, and starts a waiting period (48 h; 60 s in demo mode) during which the real client can cancel from
+any device. Then Swissquote, the provider and the new phone run DKLs23 lost-share recovery: **same key, same
+Savings safe address, new shares for everyone**; both services overwrite their old share, so the lost phone's
+share is useless. Each service decides for itself: the provider checks its own recovery record, Swissquote
+asks the provider directly and checks its own face-check record. Finally the new phone gets a new pocket key,
+Swissquote moves the refill destination (only for a completed recovery), and the old pocket is swept into the
+new one through the pocket script's MPC branch.
+
+**Swissquote gone.** With the "Swissquote offline" switch, pocket payments work as usual. Savings payments are
+signed by the phone and the recovery provider instead. The provider checks for itself that Swissquote is down,
+and only co-signs a transaction the client approved with the **recovery key**, so a thief holding the phone
+cannot use an outage to empty the safe (an addition to the brief, on purpose).
+
+**Rulebook changes** are signed with the MPC key (phone + Swissquote). Tightening (remove a contact, lower a
+limit, freeze) applies at once; loosening (add a contact, raise a limit, unfreeze) waits 24 h (30 s in demo mode)
+with alerts and can be cancelled from any device. New contacts go through the scam shield's sanctions and
+scam lists first.
+
+**Attacker mode** (thief with the unlocked phone and the client's email), each attempt against the real services:
+
+| Attempt | Result |
+|---|---|
+| Send CHF 5,000 to himself | Stopped: Swissquote blocks large payments to someone never paid |
+| Add himself as a contact | On hold for 24 h, client alerted everywhere, cancelled from the client's other device |
+| Take what the rules allow | Only the Spending pocket, never more than its CHF 100 size |
+| Move the safe to his own phone | Refused: no recovery key, face check failed |
+
+Real signet transactions:
+
+| What | Signed by | Transaction |
+|---|---|---|
+| Old pocket swept into the new phone's pocket after recovery | new phone + Swissquote (MPC branch) | [`cb993fb6…`](https://mempool.space/signet/tx/cb993fb65b114874a4d250e7967dc198884971aeda86db554d1598b86df39b23) |
+| Savings payment while Swissquote was offline | phone + recovery provider, approved with the recovery key | [`0d4357ab…`](https://mempool.space/signet/tx/0d4357ab57b22ce8763140415dae2f98b4203747f0b98d0aa096a8452a4c1dca) |
+
+**Known limits of the prototype.** Recovery attempts that are started but never verified stay open (no expiry
+yet). If a service failed in the very last round of a recovery while the other had already replaced its share,
+the shares would disagree and the recovery would need to be run again; production would make the final round
+two-phase. Alerts reach the app and a mock e-banking page by polling; real channels (push, SMS, email) are mocked.
+
 ## Real vs mock (so far)
 
 | Component | Status |
 |---|---|
 | MPC 2-of-3 threshold signatures | Real (DKLs23) |
 | Swissquote co-signer | Mock (separate process) |
-| Recovery provider / TEE | Mock (separate process) |
-| KYC and face check | Mock |
+| Recovery provider / TEE | Mock (separate process; TEE simulated) |
+| Recovery key (second passkey) | Real (WebAuthn, verified with @simplewebauthn/server) |
+| KYC and face check | Mock (simulated liveness; Swissquote's signed attestation is real) |
+| Alert channels (push, SMS, email) | Mock (shown in the app and a mock e-banking page) |
 | Sanctions and known-scam lists | Mock (labelled in the app) |
 | Swissquote fee wallet (Premium) | Real signet coins; key in the co-signer's database (Mock HSM) |
 | Wallet passkey (Face ID) | Real (WebAuthn with PRF) |

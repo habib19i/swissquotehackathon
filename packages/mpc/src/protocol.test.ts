@@ -10,7 +10,7 @@ import express from "express";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { hexToBytes } from "@noble/hashes/utils.js";
 import { coordinateKeygen, coordinateSign, type PartyHandle } from "./coordinator";
-import { localKeygenParty, remoteKeygenParty, remoteSigner } from "./client";
+import { localKeygenParty, remoteKeygenParty, remoteRecoveryParty, remoteSigner } from "./client";
 import { KeygenParty } from "./keygen";
 import { Keyshare, nodeDkls, sign } from "./node";
 import { PARTY_ID } from "./parties";
@@ -30,6 +30,7 @@ function memoryStore() {
     getShare: (walletId) => shares.get(walletId)?.share,
     getPublicKey: (walletId) => shares.get(walletId)?.publicKey,
     saveShare: (walletId, share, publicKey) => void shares.set(walletId, { share, publicKey }),
+    replaceShare: (walletId, share, publicKey) => void shares.set(walletId, { share, publicKey }),
     loadSession: (id) => sessions.get(id),
     saveSession: (id, session) => void sessions.set(id, session),
     deleteSession: (id) => void sessions.delete(id),
@@ -59,6 +60,10 @@ const servers = [cosigner, provider].map((partyId) => {
         return digestOf({ message });
       },
       onSigned: (_walletId, request, signature) => void signed.push({ request, signature }),
+      // Test policy: a recovery needs the request to say it was verified.
+      authorizeRecovery: async (_walletId, _lost, request) => {
+        if ((request as { verified?: boolean })?.verified !== true) throw new MpcError(403, "Recovery not verified");
+      },
     }),
   );
   const server = app.listen(0);
@@ -217,4 +222,42 @@ test("a signing session is single-use: its pre-signature cannot be spent twice",
   const remote = remoteSigner(urls[cosigner], cosigner, walletId, sessionId, request);
   await coordinateSign(SignParty.create(nodeDkls, phoneShare), remote, digestOf(request));
   await assert.rejects(remote.finish([]), /Unknown session/);
+});
+
+test("lost phone over HTTP: Swissquote and the provider issue a new phone share; old shares are gone", async () => {
+  const { walletId, phoneShare: lostPhone } = await createWallet();
+  const oldCosigner = Keyshare.fromBytes(cosignerService.shares.get(walletId)!.share);
+  const sessionId = randomUUID();
+  const newPhone = localKeygenParty(KeygenParty.recoverAs(nodeDkls, phone, lostPhone.publicKey));
+  const evidence = { verified: true };
+
+  const publicKey = await coordinateKeygen([
+    newPhone,
+    remoteRecoveryParty(urls[cosigner], cosigner, walletId, sessionId, phone, evidence),
+    remoteRecoveryParty(urls[provider], provider, walletId, sessionId, phone, evidence),
+  ]);
+  assert.deepEqual(hexToBytes(publicKey), lostPhone.publicKey, "same key, same addresses");
+
+  const newCosigner = Keyshare.fromBytes(cosignerService.shares.get(walletId)!.share);
+  const digest = digestOf({ message: "after recovery" });
+  const sig = sign([newPhone.share(), newCosigner], digest);
+  assert.ok(verifyDigest(bitcoinCompact(sig.r, sig.s), digest, lostPhone.publicKey), "new phone + Swissquote sign");
+
+  assert.notDeepEqual(oldCosigner.toBytes(), newCosigner.toBytes(), "Swissquote's old share was replaced");
+  const oldPhoneSigns = (() => {
+    try {
+      const s = sign([lostPhone, newCosigner], digest);
+      return verifyDigest(bitcoinCompact(s.r, s.s), digest, lostPhone.publicKey);
+    } catch {
+      return false;
+    }
+  })();
+  assert.equal(oldPhoneSigns, false, "the lost phone's share is useless");
+});
+
+test("a key holder refuses a recovery its policy has not approved", async () => {
+  const { walletId, phoneShare } = await createWallet();
+  const party = remoteRecoveryParty(urls[cosigner], cosigner, walletId, randomUUID(), phone, { verified: false });
+  await assert.rejects(party.start(), /Recovery not verified/);
+  assert.ok(phoneShare);
 });

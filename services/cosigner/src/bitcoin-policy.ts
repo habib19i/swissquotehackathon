@@ -1,5 +1,5 @@
 /**
- * Swissquote's review of a Bitcoin spend from the client's Savings safe, before it co-signs.
+ * Swissquote's review of a Bitcoin spend signed with the client's MPC key, before it co-signs.
  * Everything is recomputed here: input values come from the Bitcoin network, CHF values from
  * Swissquote's own price. Nothing the app says about amounts is trusted.
  */
@@ -25,6 +25,12 @@ export interface Prevout {
   script: Uint8Array;
 }
 
+/** A Spending pocket the client used before a recovery; the MPC key can still sweep it. */
+export interface OldPocket {
+  output: Uint8Array;
+  witnessScript: Uint8Array;
+}
+
 export interface ReviewContext {
   wallet: WalletRecord;
   rulebook: Rulebook;
@@ -35,13 +41,18 @@ export interface ReviewContext {
   pocketBalance(): Promise<bigint>;
   /** Swissquote's fee wallet: on the Premium plan one of its coins pays the network fee. */
   feeWalletAddress?: string;
+  /** Pockets replaced by a recovery (only a "pocket-sweep" may spend them). */
+  oldPockets?: OldPocket[];
 }
 
 export interface BtcSpendReview {
   tx: Transaction;
   prevouts: Prevout[];
-  /** Indexes of the inputs spending the client's Savings safe (the only ones the MPC key signs). */
-  savingsInputs: Set<number>;
+  /**
+   * The inputs the client's MPC key signs, with the script each signature commits to:
+   * undefined for Savings safe coins (P2WPKH), the witness script for old pocket coins.
+   */
+  mpcInputs: Map<number, Uint8Array | undefined>;
   review: BtcReview;
 }
 
@@ -54,13 +65,21 @@ export async function reviewBtcSpend(
   const tx = Transaction.fromBuffer(psbt.data.getTransaction());
   const savingsScript = btcAddress.toOutputScript(ctx.wallet.savingsAddress, signet);
   const feeScript = ctx.feeWalletAddress ? btcAddress.toOutputScript(ctx.feeWalletAddress, signet) : undefined;
+  const sweeping = purpose === "pocket-sweep";
 
+  const mpcInputs = new Map<number, Uint8Array | undefined>();
   const prevouts = await Promise.all(
     tx.ins.map(async (input, i) => {
       const txid = bytesToHex(Uint8Array.from(input.hash).reverse());
       const prevout = await ctx.prevout(txid, input.index);
-      const ours = equalBytes(prevout.script, savingsScript) || (feeScript && equalBytes(prevout.script, feeScript));
-      if (!ours) throw new PolicyError("Only coins in your Savings safe can be moved this way.");
+      const oldPocket = ctx.oldPockets?.find((p) => equalBytes(p.output, prevout.script));
+      if (!sweeping && equalBytes(prevout.script, savingsScript)) mpcInputs.set(i, undefined);
+      else if (sweeping && oldPocket) mpcInputs.set(i, oldPocket.witnessScript);
+      else if (!(feeScript && equalBytes(prevout.script, feeScript))) {
+        throw new PolicyError(
+          sweeping ? "Only coins in your previous Spending pocket can be moved this way." : "Only coins in your Savings safe can be moved this way.",
+        );
+      }
       const claimed = psbt.data.inputs[i].witnessUtxo;
       if (!claimed || claimed.value !== prevout.value || !equalBytes(claimed.script, prevout.script)) {
         throw new PolicyError("This payment does not match the Bitcoin network. Please start again.");
@@ -68,9 +87,7 @@ export async function reviewBtcSpend(
       return prevout;
     }),
   );
-
-  const savingsInputs = new Set(prevouts.flatMap((p, i) => (equalBytes(p.script, savingsScript) ? [i] : [])));
-  if (tx.ins.length - savingsInputs.size > 1) throw new PolicyError("A payment can use only one of Swissquote's fee coins.");
+  if (tx.ins.length - mpcInputs.size > 1) throw new PolicyError("A payment can use only one of Swissquote's fee coins.");
 
   // Swissquote's change from its fee coin is neither a recipient nor the client's money.
   const outputs = tx.outs
@@ -84,31 +101,31 @@ export async function reviewBtcSpend(
   const external = outputs.filter((o) => o.address !== ctx.wallet.pocketAddress && o.address !== ctx.wallet.savingsAddress);
   const feeChf = satsToChf(fee, ctx.btcChf);
 
-  const blocked = (valueChf: number, reason: string): BtcSpendReview => ({
+  const result = (verdict: BtcReview["verdict"], valueChf: number, ...reasons: string[]): BtcSpendReview => ({
     tx,
     prevouts,
-    savingsInputs,
-    review: { verdict: "BLOCKED", reasons: [reason], valueChf, feeChf },
+    mpcInputs,
+    review: { verdict, reasons, valueChf, feeChf },
   });
+
+  if (sweeping) {
+    if (external.length > 0) throw new PolicyError("Your previous pocket can only be moved into your own safe.");
+    return result("APPROVE", satsToChf(total(outputs), ctx.btcChf), "Moving your previous Spending pocket into your new one.");
+  }
 
   if (purpose === "pocket-refill") {
     if (external.length > 0) throw new PolicyError("A refill can only go to your own Spending pocket.");
     if (toPocket.length === 0) throw new PolicyError("This refill does not pay your Spending pocket.");
     const amount = total(toPocket);
     const valueChf = satsToChf(amount, ctx.btcChf);
-    if (fee > MAX_FEE_SATS) return blocked(valueChf, "The network fee is unusually high, so Swissquote stopped this refill.");
+    if (fee > MAX_FEE_SATS) return result("BLOCKED", valueChf, "The network fee is unusually high, so Swissquote stopped this refill.");
 
     const pocketAfter = (await ctx.pocketBalance()) + amount;
     const pocketLimit = chfToSats(ctx.rulebook.pocketSizeChf * POCKET_SIZE_TOLERANCE, ctx.btcChf);
     if (pocketAfter > pocketLimit) {
-      return blocked(valueChf, `This would put more than ${formatChf(ctx.rulebook.pocketSizeChf)} in your Spending pocket.`);
+      return result("BLOCKED", valueChf, `This would put more than ${formatChf(ctx.rulebook.pocketSizeChf)} in your Spending pocket.`);
     }
-    return {
-      tx,
-      prevouts,
-      savingsInputs,
-      review: { verdict: "APPROVE", reasons: ["Refill of your Spending pocket from your Savings safe."], valueChf, feeChf },
-    };
+    return result("APPROVE", valueChf, "Refill of your Spending pocket from your Savings safe.");
   }
 
   if (toPocket.length > 0 || external.length !== 1) {
@@ -116,16 +133,16 @@ export async function reviewBtcSpend(
   }
   const [recipient] = external;
   const valueChf = satsToChf(recipient.value, ctx.btcChf);
-  if (fee > MAX_FEE_SATS) return blocked(valueChf, "The network fee is unusually high, so Swissquote stopped this payment.");
+  if (fee > MAX_FEE_SATS) return result("BLOCKED", valueChf, "The network fee is unusually high, so Swissquote stopped this payment.");
 
   const shield = screenPayment({ address: recipient.address, valueChf, rulebook: ctx.rulebook });
-  return { tx, prevouts, savingsInputs, review: { ...shield, feeChf } };
+  return { tx, prevouts, mpcInputs, review: { ...shield, feeChf } };
 }
 
-/** The digest Swissquote signs for one Savings safe input, computed from the reviewed transaction. */
-export function savingsInputDigest(spend: BtcSpendReview, inputIndex: number, mpcPublicKey: Uint8Array): Uint8Array {
+/** The digest Swissquote signs for one input of the client's MPC key, computed from the reviewed transaction. */
+export function mpcInputDigest(spend: BtcSpendReview, inputIndex: number, mpcPublicKey: Uint8Array): Uint8Array {
   const prevout = spend.prevouts[inputIndex];
   if (!prevout) throw new PolicyError(`This payment has no input ${inputIndex}.`);
-  if (!spend.savingsInputs.has(inputIndex)) throw new PolicyError("Your key only signs coins from your Savings safe.");
-  return inputSighash(spend.tx, inputIndex, mpcPublicKey, prevout.value);
+  if (!spend.mpcInputs.has(inputIndex)) throw new PolicyError("Your key only signs coins from your own safe.");
+  return inputSighash(spend.tx, inputIndex, mpcPublicKey, prevout.value, spend.mpcInputs.get(inputIndex));
 }

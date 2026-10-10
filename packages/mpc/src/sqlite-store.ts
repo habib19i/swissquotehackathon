@@ -59,6 +59,13 @@ export function sqliteMpcStore(db: DatabaseSync): MpcStore {
       db.prepare("INSERT INTO key_shares (wallet_id, share, public_key) VALUES (?, ?, ?)").run(walletId, share, publicKey);
     },
 
+    replaceShare: (walletId, share, publicKey) => {
+      const updated = db
+        .prepare("UPDATE key_shares SET share = ?, public_key = ?, created_at = datetime('now') WHERE wallet_id = ?")
+        .run(share, publicKey, walletId);
+      if (updated.changes !== 1) throw new Error("No share to replace");
+    },
+
     loadSession: (id) => {
       const row = db
         .prepare("SELECT wallet_id, kind, next_round, state, digest, request FROM mpc_sessions WHERE id = ?")

@@ -1,18 +1,21 @@
 /**
  * Swissquote's record of each client wallet, in the co-signer's own database.
  * Registration is write-once: the Spending pocket (the refill destination) cannot be redirected later,
- * except by a completed recovery (M3).
+ * except by a completed recovery, which moves the old pocket to `oldPocketKeys` so it can be swept.
  */
 import type { DatabaseSync } from "node:sqlite";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { hexToBytes } from "@noble/hashes/utils.js";
 import { savingsSafe, spendingPocket } from "@sqw/bitcoin";
+import { addColumnIfMissing } from "@sqw/mpc/server";
 import { DEMO_CONTACTS, defaultRulebook, type Plan, type RegisterWallet, type Rulebook, type WalletRecord } from "@sqw/shared";
 
 export interface StoredWallet extends WalletRecord {
   rulebook: Rulebook;
   /** Date fixed in the pending ownership proof message. */
   ownershipIssuedAt?: string;
+  /** Pocket public keys replaced by recoveries (hex); their pockets can still be swept by the MPC key. */
+  oldPocketKeys: string[];
 }
 
 interface Row {
@@ -26,6 +29,7 @@ interface Row {
   rulebook: string;
   ownership_issued_at: string | null;
   ownership_verified_at: string | null;
+  old_pocket_keys: string | null;
 }
 
 export class WalletError extends Error {
@@ -62,6 +66,7 @@ export function walletStore(db: DatabaseSync) {
       signed_at   TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+  addColumnIfMissing(db, "wallets", "old_pocket_keys", "TEXT");
 
   const toWallet = (row: Row): StoredWallet => ({
     walletId: row.wallet_id,
@@ -74,6 +79,7 @@ export function walletStore(db: DatabaseSync) {
     rulebook: JSON.parse(row.rulebook),
     ownershipIssuedAt: row.ownership_issued_at ?? undefined,
     ownershipVerifiedAt: row.ownership_verified_at ?? undefined,
+    oldPocketKeys: row.old_pocket_keys ? JSON.parse(row.old_pocket_keys) : [],
   });
 
   // MOCK contacts follow the current demo data (e.g. after the demo family's addresses changed).
@@ -91,6 +97,12 @@ export function walletStore(db: DatabaseSync) {
 
   return {
     get,
+
+    /** MOCK login lookup: the safe of a Swissquote client, for a new phone that recovers it. */
+    byClient(clientNumber: string): StoredWallet | undefined {
+      const row = db.prepare("SELECT * FROM wallets WHERE client_number = ? ORDER BY created_at DESC").get(clientNumber) as Row | undefined;
+      return row && toWallet(row);
+    },
 
     require(walletId: string): StoredWallet {
       const wallet = get(walletId);
@@ -128,6 +140,27 @@ export function walletStore(db: DatabaseSync) {
       return get(req.walletId)!;
     },
 
+    setRulebook(walletId: string, rulebook: Rulebook) {
+      db.prepare("UPDATE wallets SET rulebook = ? WHERE wallet_id = ?").run(JSON.stringify(rulebook), walletId);
+    },
+
+    /** After a completed recovery only: the new phone's pocket replaces the old one, which stays sweepable. */
+    replacePocket(wallet: StoredWallet, pocketPublicKey: string) {
+      try {
+        secp256k1.Point.fromHex(pocketPublicKey);
+      } catch {
+        throw new WalletError(400, "Invalid Spending pocket key.");
+      }
+      const pocket = spendingPocket(hexToBytes(pocketPublicKey), hexToBytes(wallet.mpcPublicKey));
+      const old = [...wallet.oldPocketKeys, wallet.pocketPublicKey];
+      db.prepare("UPDATE wallets SET pocket_public_key = ?, pocket_address = ?, old_pocket_keys = ? WHERE wallet_id = ?").run(
+        pocketPublicKey,
+        pocket.address,
+        JSON.stringify(old),
+        wallet.walletId,
+      );
+    },
+
     setPlan(walletId: string, plan: Plan) {
       if (!PLANS.includes(plan)) throw new WalletError(400, "Unknown plan.");
       db.prepare("UPDATE wallets SET plan = ? WHERE wallet_id = ?").run(plan, walletId);
@@ -153,6 +186,6 @@ export function walletStore(db: DatabaseSync) {
 }
 
 /** The public part of a wallet record, as returned to the app. */
-export function publicRecord({ rulebook: _rulebook, ownershipIssuedAt: _issued, ...record }: StoredWallet): WalletRecord {
+export function publicRecord({ rulebook: _rulebook, ownershipIssuedAt: _issued, oldPocketKeys: _old, ...record }: StoredWallet): WalletRecord {
   return record;
 }

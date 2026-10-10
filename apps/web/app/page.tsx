@@ -3,12 +3,14 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { chfToSats, refillAmount } from "@sqw/bitcoin";
-import { DEFAULT_POCKET_SIZE_CHF, explorer, type WalletRecord } from "@sqw/shared";
+import { DEFAULT_POCKET_SIZE_CHF, explorer, type Alert, type WalletRecord } from "@sqw/shared";
 import { CheckIcon, ReceiveIcon, SendIcon, ShieldIcon } from "../components/icons";
 import { KeyHolders } from "../components/keyholders";
 import { Mock, Screen } from "../components/screen";
 import { RequireWallet } from "../components/wallet-context";
+import { cosigner, swissquoteOnline } from "../lib/cosigner";
 import { formatBtc, formatChf, formatSatsAsChf, shortId } from "../lib/format";
+import { hasRecoveryKey } from "../lib/recovery-key";
 import type { WalletProfile } from "../lib/profile";
 import { finishSetup, swissquoteRecord } from "../lib/setup";
 import { usePrice } from "../lib/use-price";
@@ -33,6 +35,9 @@ function Home({ profile }: { profile: WalletProfile }) {
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<{ text: string; txid?: string }>();
+  const [online, setOnline] = useState(true);
+  const [recoveryKey, setRecoveryKey] = useState<boolean>();
+  const [urgent, setUrgent] = useState<Alert>();
 
   const load = useCallback(() => {
     loadBalances(profile)
@@ -44,6 +49,21 @@ function Home({ profile }: { profile: WalletProfile }) {
     swissquoteRecord(profile.walletId)
       .then((r) => setRecord(r ?? null))
       .catch(() => setRecord(undefined));
+    swissquoteOnline().then(setOnline);
+    hasRecoveryKey(profile.walletId).then(setRecoveryKey);
+    // The latest alert the client may need to act on: a change on hold, or a recovery under way.
+    cosigner
+      .alerts(profile.walletId)
+      .then((alerts) => {
+        // Alerts are newest first: a request is still open if nothing newer concerns the same change or recovery.
+        const open = alerts.find(
+          (a, i) =>
+            (a.type === "rulebook-change-requested" || a.type === "recovery-started") &&
+            !alerts.slice(0, i).some((b) => (a.changeId && b.changeId === a.changeId) || (a.recoveryId && b.recoveryId === a.recoveryId)),
+        );
+        setUrgent(open);
+      })
+      .catch(() => setUrgent(undefined));
   }, [profile]);
 
   useEffect(() => {
@@ -97,6 +117,26 @@ function Home({ profile }: { profile: WalletProfile }) {
         </p>
       </section>
 
+      {!online && (
+        <p className="notice warn" role="status">
+          Swissquote is offline. Your Spending pocket works as usual. Larger payments from your Savings safe use your
+          recovery key and the independent safe-keeper instead.
+        </p>
+      )}
+      {urgent && (
+        <Link href="/alerts" className="notice warn" style={{ display: "block", textDecoration: "none" }}>
+          <span className="row-title">Swissquote alert</span>
+          <br />
+          {urgent.message}
+        </Link>
+      )}
+      {recoveryKey === false && record?.ownershipVerifiedAt && (
+        <Link href="/recovery-key" className="notice warn" style={{ display: "block", textDecoration: "none" }}>
+          <span className="row-title">Add your recovery key</span>
+          <br />
+          Without it, nobody can bring your safe back if you lose this phone.
+        </Link>
+      )}
       {record === null && (
         <div className="notice warn">
           <p>Swissquote has not verified this safe yet. Finish setting it up to use your Savings safe.</p>
@@ -206,8 +246,17 @@ function Home({ profile }: { profile: WalletProfile }) {
       <Link href="/activity" className="button quiet">
         See all activity
       </Link>
+      <Link href="/rules" className="button quiet">
+        Contacts and rules
+      </Link>
+      <Link href="/alerts" className="button quiet">
+        Alerts
+      </Link>
       <Link href="/settings" className="button quiet">
         Plan and settings
+      </Link>
+      <Link href="/demo" className="button quiet">
+        Demo panel
       </Link>
 
       <p className="small muted">

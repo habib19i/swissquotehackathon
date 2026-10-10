@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { InsufficientFundsError, chfToSats } from "@sqw/bitcoin";
-import { DEMO_CONTACTS, explorer, type Contact } from "@sqw/shared";
+import { explorer, type Contact } from "@sqw/shared";
 import { FaceIcon, ShieldIcon } from "../../components/icons";
 import { Screen } from "../../components/screen";
 import { RequireWallet } from "../../components/wallet-context";
 import { formatBtc, formatSatsAsChf, shortId } from "../../lib/format";
 import type { WalletProfile } from "../../lib/profile";
+import { loadRulebook } from "../../lib/rules";
 import { usePrice } from "../../lib/use-price";
 import {
   NotEnoughInOnePocketError,
@@ -34,7 +35,7 @@ function Send({ profile }: { profile: WalletProfile }) {
 
   switch (step.name) {
     case "contact":
-      return <ContactStep onPick={(contact) => setStep({ name: "amount", contact })} />;
+      return <ContactStep profile={profile} onPick={(contact) => setStep({ name: "amount", contact })} />;
     case "amount":
       return (
         <AmountStep
@@ -58,12 +59,19 @@ function Send({ profile }: { profile: WalletProfile }) {
   }
 }
 
-function ContactStep({ onPick }: { onPick: (contact: Contact) => void }) {
+/** The approved contacts from the rulebook (Swissquote's copy, or this phone's when Swissquote is offline). */
+function ContactStep({ profile, onPick }: { profile: WalletProfile; onPick: (contact: Contact) => void }) {
+  const [contacts, setContacts] = useState<Contact[]>();
+  useEffect(() => {
+    loadRulebook(profile.walletId).then((rb) => setContacts(rb.contacts));
+  }, [profile]);
+
   return (
     <Screen back={{ href: "/" }}>
       <h1>Who do you want to pay?</h1>
       <ul className="rows">
-        {DEMO_CONTACTS.map((c) => (
+        {contacts?.length === 0 && <li className="row muted">You have no contacts yet.</li>}
+        {contacts?.map((c) => (
           <li key={c.id}>
             <button className="row" onClick={() => onPick(c)}>
               <span className="avatar" aria-hidden="true">
@@ -78,7 +86,10 @@ function ContactStep({ onPick }: { onPick: (contact: Contact) => void }) {
           </li>
         ))}
       </ul>
-      <p className="small muted">To pay someone new, Swissquote first checks them for you. This comes in the next version of the prototype.</p>
+      <p className="small muted">
+        To pay someone new, <Link href="/rules">add them as a contact</Link>. Swissquote checks them for you, and they
+        become a contact after a waiting period.
+      </p>
     </Screen>
   );
 }
@@ -238,6 +249,12 @@ function ConfirmStep({
       <PaymentSlip payment={payment} />
       {payment.from === "pocket" && (
         <p className="small muted">Payments from your Spending pocket only need your Face ID. Swissquote does not sign them.</p>
+      )}
+      {payment.from === "savings" && payment.via === "recovery-provider" && (
+        <p className="notice warn">
+          Swissquote is offline, so your recovery key and the independent safe-keeper approve this payment instead.
+          You will be asked for your Face ID, then for your recovery key.
+        </p>
       )}
       {review && (
         <div className={`notice ${review.verdict === "APPROVE" ? "ok" : review.verdict === "BLOCKED" ? "error" : "warn"}`} role="status">

@@ -5,6 +5,8 @@
  *   GET  /mpc/identity                       this party's box public key (for sealing)
  *   POST /mpc/keygen                         start key generation for a new wallet
  *   POST /mpc/keygen/:sessionId/rounds/:n    run round n (1..4); the share is stored after round 4
+ *   POST /mpc/recover                        lost-share recovery: issue a new share to the party that lost it
+ *                                            (then the same rounds as keygen); the stored share is replaced
  *   POST /mpc/sign                           ask this holder to co-sign; its policy computes the digest
  *   POST /mpc/sign/:sessionId/rounds/:n      rounds 1..3 build the pre-signature, round 4 signs
  */
@@ -21,13 +23,13 @@ export { addColumnIfMissing, sqliteIdentity, sqliteMpcStore } from "./sqlite-sto
 
 export interface MpcSession {
   walletId: string;
-  kind: "keygen" | "sign";
+  kind: "keygen" | "recovery" | "sign";
   /** The next round this session accepts; rounds must arrive in order. */
   nextRound: number;
   state: Uint8Array;
   /** Sign sessions: the digest this holder agreed to sign (hex), fixed when the session starts. */
   digest?: string;
-  /** Sign sessions: the request, kept for the record once signed. */
+  /** Sign and recovery sessions: the request, kept for the holder's records. */
   request?: unknown;
 }
 
@@ -37,6 +39,8 @@ export interface MpcStore {
   getShare(walletId: string): Uint8Array | undefined;
   getPublicKey(walletId: string): string | undefined;
   saveShare(walletId: string, share: Uint8Array, publicKey: string): void;
+  /** Overwrites the share after a refresh or recovery: the old share must not survive. */
+  replaceShare(walletId: string, share: Uint8Array, publicKey: string): void;
   loadSession(sessionId: string): MpcSession | undefined;
   saveSession(sessionId: string, session: MpcSession): void;
   deleteSession(sessionId: string): void;
@@ -55,6 +59,13 @@ export interface MpcPartyConfig {
   authorizeSign(walletId: string, request: unknown): Promise<Uint8Array>;
   /** Called once a signature exists, for the holder's own records. */
   onSigned?(walletId: string, request: unknown, signature: Signature): void | Promise<void>;
+  /**
+   * This holder's recovery policy: may it help issue a new share to party `lostPartyId`?
+   * Throw an MpcError to refuse. Without this hook, the holder never takes part in a recovery.
+   */
+  authorizeRecovery?(walletId: string, lostPartyId: number, request: unknown): Promise<void>;
+  /** Called once this holder's share was replaced by a recovery. */
+  onRecovered?(walletId: string, request: unknown): void | Promise<void>;
 }
 
 export class MpcError extends Error {
@@ -88,11 +99,11 @@ export function mpcRouter(config: MpcPartyConfig) {
     );
   }
 
-  function sessionFor(req: Request, kind: MpcSession["kind"]) {
+  function sessionFor(req: Request, kinds: MpcSession["kind"][]) {
     const sessionId = String(req.params.sessionId);
     const n = Number(req.params.n);
     const session = store.loadSession(sessionId);
-    if (!session || session.kind !== kind) throw new MpcError(404, "Unknown session");
+    if (!session || !kinds.includes(session.kind)) throw new MpcError(404, "Unknown session");
     if (n !== session.nextRound) throw new MpcError(409, `Expected round ${session.nextRound}, got ${n}`);
     return { sessionId, n, session };
   }
@@ -122,8 +133,23 @@ export function mpcRouter(config: MpcPartyConfig) {
     res.json({ messages });
   });
 
+  router.post("/mpc/recover", async (req, res) => {
+    const { walletId, sessionId } = newSession(req, "recovery");
+    const lostPartyId = Number(req.body.lostPartyId);
+    const share = store.getShare(walletId);
+    if (!share) throw new MpcError(404, "Unknown wallet");
+    if (lostPartyId === partyId || !(lostPartyId >= 0)) throw new MpcError(400, "Invalid lost party");
+    if (!config.authorizeRecovery) throw new MpcError(403, "This key holder does not take part in recoveries");
+    await config.authorizeRecovery(walletId, lostPartyId, req.body.request);
+
+    const party = KeygenParty.recoverWith(nodeDkls, nodeDkls.Keyshare.fromBytes(share), lostPartyId);
+    const messages = party.start();
+    store.saveSession(sessionId, { walletId, kind: "recovery", nextRound: 1, state: party.toBytes(), request: req.body.request });
+    res.json({ messages });
+  });
+
   router.post("/mpc/keygen/:sessionId/rounds/:n", async (req, res) => {
-    const { sessionId, n, session } = sessionFor(req, "keygen");
+    const { sessionId, n, session } = sessionFor(req, ["keygen", "recovery"]);
     const party = KeygenParty.restore(nodeDkls, partyId, session.state);
     const output = party.round(n, {
       messages: await openIncoming(req.body?.messages ?? []),
@@ -131,8 +157,16 @@ export function mpcRouter(config: MpcPartyConfig) {
     });
 
     if (n === KEYGEN_ROUNDS) {
-      store.saveShare(session.walletId, party.result().toBytes(), output.publicKey!);
       store.deleteSession(sessionId);
+      if (session.kind === "recovery") {
+        // Same key, new shares: the old share is overwritten and can never sign again with the new ones.
+        const publicKey = output.publicKey!;
+        if (publicKey !== store.getPublicKey(session.walletId)) throw new MpcError(500, "Recovery produced a different key");
+        store.replaceShare(session.walletId, party.result().toBytes(), publicKey);
+        await config.onRecovered?.(session.walletId, session.request);
+      } else {
+        store.saveShare(session.walletId, party.result().toBytes(), output.publicKey!);
+      }
     } else {
       store.saveSession(sessionId, { ...session, nextRound: n + 1, state: party.toBytes() });
     }
@@ -157,7 +191,7 @@ export function mpcRouter(config: MpcPartyConfig) {
   });
 
   router.post("/mpc/sign/:sessionId/rounds/:n", async (req, res) => {
-    const { sessionId, n, session } = sessionFor(req, "sign");
+    const { sessionId, n, session } = sessionFor(req, ["sign"]);
     const party = SignParty.restore(nodeDkls, partyId, session.state);
     const incoming = await openIncoming(req.body?.messages ?? []);
 

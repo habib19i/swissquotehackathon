@@ -5,7 +5,7 @@ import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { buildSavingsPayment, chfToSats, inputSighash, savingsSafe, signet, spendingPocket, type Utxo } from "@sqw/bitcoin";
 import { DEMO_ATTACKER_BTC_ADDRESS, DEMO_CONTACTS, defaultRulebook, type WalletRecord } from "@sqw/shared";
-import { MAX_FEE_SATS, PolicyError, reviewBtcSpend, savingsInputDigest, type ReviewContext } from "./bitcoin-policy";
+import { MAX_FEE_SATS, PolicyError, reviewBtcSpend, mpcInputDigest, type ReviewContext } from "./bitcoin-policy";
 
 const BTC_CHF = 70_000;
 const mpcKey = secp256k1.getPublicKey(secp256k1.utils.randomSecretKey(), true);
@@ -53,8 +53,8 @@ test("a payment to Léo from the Savings safe is approved, with Swissquote's own
 test("Swissquote signs the digest of the reviewed transaction, input by input", async () => {
   const psbt = pay(leo, 50);
   const spend = await reviewBtcSpend(psbt.toBase64(), "savings-payment", context());
-  assert.deepEqual(savingsInputDigest(spend, 0, mpcKey), inputSighash(spend.tx, 0, mpcKey, BigInt(coin.value)));
-  assert.throws(() => savingsInputDigest(spend, 1, mpcKey), /no input 1/);
+  assert.deepEqual(mpcInputDigest(spend, 0, mpcKey), inputSighash(spend.tx, 0, mpcKey, BigInt(coin.value)));
+  assert.throws(() => mpcInputDigest(spend, 1, mpcKey), /no input 1/);
 });
 
 test("attacker mode: CHF 5,000 from the Savings safe to the thief is blocked", async () => {
