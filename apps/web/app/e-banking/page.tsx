@@ -29,7 +29,9 @@ export default function EBankingPage() {
     <div className="screen ebanking">
       <header className="topbar">
         <span className="brand">
-          <span className="brand-mark" aria-hidden="true" />
+          <span className="brand-mark" aria-hidden="true">
+            <img src="/swissquote-logo.png" alt="" width={40} height={40} />
+          </span>
           Swissquote e-banking
         </span>
         <span className="prototype-tag">

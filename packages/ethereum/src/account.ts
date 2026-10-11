@@ -14,6 +14,8 @@ import { DEPLOYMENTS } from "./deployments";
 
 /** What the account is created with; its address commits to all of it. */
 export interface AccountSettings {
+  /** The factory (account version) that creates it. */
+  factory: Address;
   /** Ethereum address of the 2-of-3 MPC key. */
   mpcSigner: Address;
   /** The wallet passkey's P-256 public key. */
@@ -24,11 +26,15 @@ export interface AccountSettings {
   dailyLimit: bigint;
 }
 
-/** The settings of an account record (JSON form, as Swissquote keeps it). */
+/** The settings of an account record (JSON form, as Swissquote keeps it). Older records predate apps. */
 export const accountSettings = (record: EthAccountRecord): AccountSettings => ({
   ...record.settings,
+  factory: record.factory ?? DEPLOYMENTS.legacyFactories[0],
   dailyLimit: BigInt(record.settings.dailyLimit),
 });
+
+/** Accounts created by the current factory can use DeFi apps; older ones keep payments only. */
+export const supportsApps = (record: EthAccountRecord) => accountSettings(record).factory === DEPLOYMENTS.factory;
 
 /** The rules as currently enforced on-chain. */
 export interface OnChainRules {
@@ -39,6 +45,10 @@ export interface OnChainRules {
   passkeyX: Hex;
   passkeyY: Hex;
   remainingToday: bigint;
+  /** Adapters of the DeFi apps approved on-chain (accounts with apps only). */
+  apps: Address[];
+  appDailyLimit: bigint;
+  remainingAppToday: bigint;
 }
 
 /** Ethereum address of the MPC key, from its compressed secp256k1 public key (hex). */
@@ -66,13 +76,13 @@ const createArgs = (s: AccountSettings) => [s.mpcSigner, s.passkeyX, s.passkeyY,
 /** The factory call that deploys the account, for the first UserOperation's initCode. */
 export function deployment(settings: AccountSettings): { factory: Address; factoryData: Hex } {
   return {
-    factory: DEPLOYMENTS.factory,
+    factory: settings.factory,
     factoryData: encodeFunctionData({ abi: factoryAbi, functionName: "createAccount", args: createArgs(settings) }),
   };
 }
 
 export function accountAddress(client: BaseClient, settings: AccountSettings): Promise<Address> {
-  return client.readContract({ address: DEPLOYMENTS.factory, abi: factoryAbi, functionName: "getAddress", args: createArgs(settings) });
+  return client.readContract({ address: settings.factory, abi: factoryAbi, functionName: "getAddress", args: createArgs(settings) });
 }
 
 export async function isDeployed(client: BaseClient, account: Address): Promise<boolean> {
@@ -82,7 +92,7 @@ export async function isDeployed(client: BaseClient, account: Address): Promise<
 /** The account's rules on-chain; before deployment, the settings it will be created with. */
 export async function onChainRules(client: BaseClient, account: Address, settings: AccountSettings): Promise<OnChainRules> {
   if (!(await isDeployed(client, account))) {
-    return { deployed: false, ...settings, frozen: false, remainingToday: settings.dailyLimit };
+    return { deployed: false, ...settings, frozen: false, remainingToday: settings.dailyLimit, apps: [], appDailyLimit: 0n, remainingAppToday: 0n };
   }
   const read = <F extends "contactsRoot" | "dailyLimit" | "frozen" | "passkeyX" | "passkeyY" | "remainingToday">(functionName: F) =>
     ({ address: account, abi: rulebookAccountAbi, functionName }) as const;
@@ -90,5 +100,22 @@ export async function onChainRules(client: BaseClient, account: Address, setting
     contracts: [read("contactsRoot"), read("dailyLimit"), read("frozen"), read("passkeyX"), read("passkeyY"), read("remainingToday")],
     allowFailure: false,
   });
-  return { deployed: true, contactsRoot, dailyLimit, frozen, passkeyX, passkeyY, remainingToday };
+  const rules = { deployed: true, contactsRoot, dailyLimit, frozen, passkeyX, passkeyY, remainingToday };
+  if (settings.factory !== DEPLOYMENTS.factory) return { ...rules, apps: [], appDailyLimit: 0n, remainingAppToday: 0n };
+
+  const adapters = Object.values(DEPLOYMENTS.adapters) as Address[];
+  const [[appDailyLimit, remainingAppToday], approved] = await Promise.all([
+    client.multicall({
+      contracts: [
+        { address: account, abi: rulebookAccountAbi, functionName: "appDailyLimit" },
+        { address: account, abi: rulebookAccountAbi, functionName: "remainingAppToday" },
+      ],
+      allowFailure: false,
+    }),
+    client.multicall({
+      contracts: adapters.map((adapter) => ({ address: account, abi: rulebookAccountAbi, functionName: "approvedApp", args: [adapter] }) as const),
+      allowFailure: false,
+    }),
+  ]);
+  return { ...rules, apps: adapters.filter((_, i) => approved[i]), appDailyLimit, remainingAppToday };
 }

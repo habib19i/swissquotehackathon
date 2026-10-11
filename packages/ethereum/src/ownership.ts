@@ -13,7 +13,7 @@ export function ethOwnershipMessage(clientNumber: string, account: Address, issu
   return [
     "Swissquote Wallet ownership proof",
     `Client: ${clientNumber}`,
-    `Digital dollar account (Base): ${account}`,
+    `USDC account (Base): ${account}`,
     `Date: ${issuedAt}`,
   ].join("\n");
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { Alert, PendingChange, RecoveryRequest, Rulebook } from "@sqw/shared";
+import { appById, type Alert, type PendingChange, type RecoveryRequest, type Rulebook } from "@sqw/shared";
 import { cosigner } from "../lib/cosigner";
 import { provider } from "../lib/provider";
 import { Countdown, DemoModeNote } from "./countdown";
@@ -22,6 +22,10 @@ function describe(change: PendingChange["change"], rulebook?: Rulebook): string 
       return "Freeze the safe";
     case "unfreeze":
       return "Unfreeze the safe";
+    case "addApp":
+      return `Use ${appById(change.appId)?.name ?? "an app"} with Face ID alone`;
+    case "removeApp":
+      return `Stop ${appById(change.appId)?.name ?? "an app"} from being used with Face ID alone`;
   }
 }
 

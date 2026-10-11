@@ -3,8 +3,8 @@
  * decoded by Swissquote before it co-signs or sponsors anything.
  */
 import { decodeAbiParameters, decodeFunctionData, encodeAbiParameters, encodeFunctionData, erc20Abi, isAddressEqual, type Address, type Hex } from "viem";
-import { rulebookAccountAbi } from "./abi";
-import { USDC } from "./config";
+import { aavePoolAbi, rulebookAccountAbi } from "./abi";
+import { PROTOCOLS, USDC } from "./config";
 
 /** ERC-7821 batch mode: call type 0x01 (batch), default execution type, no extra data. */
 export const BATCH_MODE: Hex = `0x01${"00".repeat(31)}`;
@@ -34,10 +34,18 @@ export type AccountAction =
   | { kind: "setRulebook"; root: Hex; limit: bigint }
   | { kind: "setFrozen"; frozen: boolean }
   | { kind: "setPasskey"; x: Hex; y: Hex }
-  | { kind: "revokeContact"; contact: Address };
+  | { kind: "revokeContact"; contact: Address }
+  | { kind: "setApp"; app: Address; approved: boolean }
+  | { kind: "setAppLimit"; limit: bigint }
+  /** Use a DeFi app through its adapter. `checked`: with the MPC key, outside the approved apps. */
+  | { kind: "useApp"; app: Address; params: Hex; checked: boolean }
+  /** Requests from an app connected with WalletConnect: direct calls to vetted protocol contracts. */
+  | { kind: "tokenApproval"; token: Address; spender: Address; amount: bigint }
+  | { kind: "aaveSupply"; asset: Address; amount: bigint; onBehalfOf: Address }
+  | { kind: "aaveWithdraw"; asset: Address; amount: bigint; to: Address };
 
 /** What the account does to itself: its rules and its passkey. */
-export type SelfAction = Extract<AccountAction, { kind: "setRulebook" | "setFrozen" | "setPasskey" }>;
+export type SelfAction = Extract<AccountAction, { kind: "setRulebook" | "setFrozen" | "setPasskey" | "setApp" | "setAppLimit" }>;
 
 export class UnsupportedCallError extends Error {}
 
@@ -51,13 +59,27 @@ export function usdcTransfer(to: Address, amount: bigint): Call {
 
 /** A call from the account to itself, e.g. a rulebook update inside a batch. */
 export function selfCall(account: Address, action: SelfAction): Call {
-  const data =
-    action.kind === "setRulebook"
-      ? encodeFunctionData({ abi: rulebookAccountAbi, functionName: "setRulebook", args: [action.root, action.limit] })
-      : action.kind === "setFrozen"
-        ? encodeFunctionData({ abi: rulebookAccountAbi, functionName: "setFrozen", args: [action.frozen] })
-        : encodeFunctionData({ abi: rulebookAccountAbi, functionName: "setPasskey", args: [action.x, action.y] });
-  return { target: account, value: 0n, data };
+  return { target: account, value: 0n, data: selfCallData(action) };
+}
+
+function selfCallData(action: SelfAction): Hex {
+  switch (action.kind) {
+    case "setRulebook":
+      return encodeFunctionData({ abi: rulebookAccountAbi, functionName: "setRulebook", args: [action.root, action.limit] });
+    case "setFrozen":
+      return encodeFunctionData({ abi: rulebookAccountAbi, functionName: "setFrozen", args: [action.frozen] });
+    case "setPasskey":
+      return encodeFunctionData({ abi: rulebookAccountAbi, functionName: "setPasskey", args: [action.x, action.y] });
+    case "setApp":
+      return encodeFunctionData({ abi: rulebookAccountAbi, functionName: "setApp", args: [action.app, action.approved] });
+    case "setAppLimit":
+      return encodeFunctionData({ abi: rulebookAccountAbi, functionName: "setAppLimit", args: [action.limit] });
+  }
+}
+
+/** Uses an app: `useApp` (approved apps, Face ID alone) or `useAppChecked` (any app, MPC key). */
+export function useAppCall(app: Address, params: Hex, checked: boolean): Hex {
+  return encodeFunctionData({ abi: rulebookAccountAbi, functionName: checked ? "useAppChecked" : "useApp", args: [app, params] });
 }
 
 /** Several calls in one operation (ERC-7821 `execute`); only the MPC key may sign it. */
@@ -80,6 +102,13 @@ function accountAction(data: Hex): AccountAction {
       return { kind: "setPasskey", x: call.args[0], y: call.args[1] };
     case "revokeContact":
       return { kind: "revokeContact", contact: call.args[0] };
+    case "setApp":
+      return { kind: "setApp", app: call.args[0], approved: call.args[1] };
+    case "setAppLimit":
+      return { kind: "setAppLimit", limit: call.args[0] };
+    case "useApp":
+    case "useAppChecked":
+      return { kind: "useApp", app: call.args[0], params: call.args[1], checked: call.functionName === "useAppChecked" };
     default:
       throw new UnsupportedCallError(`The account call ${call.functionName} is not supported here.`);
   }
@@ -92,10 +121,17 @@ function batchedAction(account: Address, { target, value, data }: Call): Account
     if (action.kind === "payContact") throw new UnsupportedCallError("A daily payment cannot be part of a batch.");
     return action;
   }
-  if (isAddressEqual(target, USDC.address)) {
+  if (isAddressEqual(target, USDC.address) || isAddressEqual(target, PROTOCOLS.weth)) {
     const call = decodeFunctionData({ abi: erc20Abi, data });
-    if (call.functionName !== "transfer") throw new UnsupportedCallError(`USDC ${call.functionName} is not supported.`);
-    return { kind: "usdcTransfer", to: call.args[0], amount: call.args[1] };
+    if (call.functionName === "approve") return { kind: "tokenApproval", token: target, spender: call.args[0], amount: call.args[1] };
+    if (call.functionName === "transfer" && isAddressEqual(target, USDC.address)) return { kind: "usdcTransfer", to: call.args[0], amount: call.args[1] };
+    throw new UnsupportedCallError("This token operation is not supported.");
+  }
+  if (isAddressEqual(target, PROTOCOLS.aave.pool)) {
+    const call = decodeFunctionData({ abi: aavePoolAbi, data });
+    return call.functionName === "supply"
+      ? { kind: "aaveSupply", asset: call.args[0], amount: call.args[1], onBehalfOf: call.args[2] }
+      : { kind: "aaveWithdraw", asset: call.args[0], amount: call.args[1], to: call.args[2] };
   }
   throw new UnsupportedCallError("This operation calls a contract Swissquote does not support.");
 }

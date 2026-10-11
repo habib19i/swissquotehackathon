@@ -1,5 +1,5 @@
 /**
- * Digital dollars: USDC on Base Sepolia, in the client's RulebookAccount (contracts/src).
+ * USDC: USDC on Base Sepolia, in the client's RulebookAccount (contracts/src).
  *
  * - Daily payments to approved contacts, within the daily limit: Face ID alone. The wallet passkey
  *   signs the operation; the account itself checks the contact (Merkle proof) and the limit on-chain.
@@ -57,7 +57,7 @@ export const USDC_ACCOUNT = "sqw.usdc-account";
 
 /** Shown when Swissquote is offline: in this prototype, its bundler is the only way onto Base. */
 export const USDC_OFFLINE =
-  "While Swissquote is offline, digital dollar payments wait: in this prototype Swissquote relays them to the network. (In production, any standard relay could.)";
+  "While Swissquote is offline, USDC payments wait: in this prototype Swissquote relays them to the network. (In production, any standard relay could.)";
 
 /** The operation was included on Base but did not go through. */
 export class OperationFailedError extends Error {
@@ -76,9 +76,9 @@ async function verified(profile: WalletProfile, record: EthAccountRecord, passke
     isAddressEqual(settings.mpcSigner, mpcSignerAddress(profile.mpcPublicKey)) &&
     record.passkey.x === passkey.x &&
     record.passkey.y === passkey.y;
-  if (!ours) throw new Error("Swissquote recorded a digital dollar account with other keys. Setup stopped.");
+  if (!ours) throw new Error("Swissquote recorded a USDC account with other keys. Setup stopped.");
   if (!isAddressEqual(await accountAddress(client, settings), record.address)) {
-    throw new Error("Swissquote computed a different address for your digital dollars. Setup stopped.");
+    throw new Error("Swissquote computed a different address for your USDC. Setup stopped.");
   }
   return record;
 }
@@ -86,7 +86,7 @@ async function verified(profile: WalletProfile, record: EthAccountRecord, passke
 /** The client's USDC account: set up with Swissquote once (public keys only, no Face ID), then remembered. */
 export async function usdcAccount(profile: WalletProfile): Promise<EthAccountRecord> {
   const spki = profile.passkey.publicKey;
-  if (!spki || profile.passkey.algorithm !== -7) throw new Error("This phone's Face ID uses a key type Base cannot check, so digital dollars are not available.");
+  if (!spki || profile.passkey.algorithm !== -7) throw new Error("This safe's Face ID key is a type Base cannot check, so USDC and apps are not available. Open a new safe to use them.");
   const passkey = passkeyFromSpki(spki);
   const saved = await get<{ walletId: string; record: EthAccountRecord }>(USDC_ACCOUNT);
   if (saved?.walletId === profile.walletId && saved.record.passkey.x === passkey.x) return saved.record;
@@ -104,7 +104,7 @@ export async function loadUsdcBalance(profile: WalletProfile): Promise<bigint> {
 // ---------------------------------------------------------------- operations
 
 /** Swissquote filled in gas, nonce and its sponsorship: the operation must still be exactly ours. */
-function checked(prepared: EthPrepared, account: Address, callData: Hex): EthPrepared {
+export function checked(prepared: EthPrepared, account: Address, callData: Hex): EthPrepared {
   const op = userOpFromJson(prepared.userOp);
   const same =
     isAddressEqual(op.sender, account) &&
@@ -117,7 +117,7 @@ function checked(prepared: EthPrepared, account: Address, callData: Hex): EthPre
 }
 
 /** Calls that bring the rules and the passkey on Base up to date with the rules in force. */
-async function updateCalls(profile: WalletProfile, record: EthAccountRecord, status: EthStatus): Promise<Call[]> {
+export async function updateCalls(profile: WalletProfile, record: EthAccountRecord, status: EthStatus): Promise<Call[]> {
   const actions: SelfAction[] = pendingSync(status);
   if (actions.some((a) => a.kind === "setRulebook")) {
     // Never sign contacts the client did not approve: the root must be that of the rulebook shown to them.
@@ -129,13 +129,13 @@ async function updateCalls(profile: WalletProfile, record: EthAccountRecord, sta
 }
 
 /** The phone and Swissquote sign the operation with the MPC key; Swissquote recomputes its hash. */
-async function mpcSign(profile: WalletProfile, share: DklsKeyshare, prepared: EthPrepared, clientConfirmed: boolean): Promise<Hex> {
+export async function mpcSign(profile: WalletProfile, share: DklsKeyshare, prepared: EthPrepared, clientConfirmed: boolean): Promise<Hex> {
   const digest = hexToBytes(prepared.userOpHash);
   const { r, s } = await cosignWithSwissquote(share, profile.walletId, { kind: "eth-userop", userOp: prepared.userOp, clientConfirmed }, digest);
   return mpcSignature(ethereumSignature(r, s, digest, hexToBytesNoble(profile.mpcPublicKey)));
 }
 
-async function submit(profile: WalletProfile, prepared: EthPrepared, signature: Hex): Promise<EthSent> {
+export async function submit(profile: WalletProfile, prepared: EthPrepared, signature: Hex): Promise<EthSent> {
   const sent = await cosigner.ethSend(profile.walletId, userOpToJson({ ...userOpFromJson(prepared.userOp), signature }));
   if (!sent.success) throw new OperationFailedError(sent);
   return sent;
@@ -173,7 +173,7 @@ export interface UsdcPayment {
 
 export async function prepareUsdcPayment(profile: WalletProfile, contact: Contact, amount: bigint): Promise<UsdcPayment> {
   const to = contact.ethAddress;
-  if (!to) throw new Error(`${contact.name} has no digital dollar address yet.`);
+  if (!to) throw new Error(`${contact.name} has no USDC address yet.`);
   if (!(await swissquoteOnline())) throw new Error(USDC_OFFLINE);
 
   const record = await usdcAccount(profile);
@@ -181,7 +181,7 @@ export async function prepareUsdcPayment(profile: WalletProfile, contact: Contac
   const [status, fee, rulebook] = await Promise.all([cosigner.ethStatus(id), cosigner.ethFee(id), cosigner.rulebook(id)]);
   const feeUnits = BigInt(fee.feeUsdc);
   const remainingToday = BigInt(status.onChain.remainingToday);
-  if (amount + feeUnits > BigInt(status.balance)) throw new Error("There are not enough digital dollars in your safe for this payment.");
+  if (amount + feeUnits > BigInt(status.balance)) throw new Error("There is not enough USDC in your safe for this payment.");
 
   const approved = rulebook.contacts.some((c) => c.ethAddress && isAddressEqual(c.ethAddress, to));
   const withinRules = approved && status.rulesUpToDate && status.passkeyUpToDate && !status.onChain.frozen && amount + feeUnits <= remainingToday;

@@ -18,12 +18,17 @@ import { ENTRY_POINT, ENTRY_POINT_VERSION, chain } from "./config";
 
 export type UserOp = UserOperation<typeof ENTRY_POINT_VERSION>;
 
-/** Gas limits: generous fixed values (Swissquote runs the bundler; unused validation gas costs nothing). */
+/**
+ * Gas limits. Validation: generous fixed values (unused validation gas costs nothing). Execution: measured
+ * by simulation when the account exists (DeFi apps need far more than a payment), else these defaults.
+ */
 export const GAS = {
   verification: 400_000n,
   /** The first operation also deploys the account. */
   verificationWithDeployment: 700_000n,
   call: 200_000n,
+  /** Before the account exists its calls cannot be simulated: room for an app's first use. */
+  callUndeployed: 600_000n,
   preVerification: 60_000n,
   paymasterVerification: 60_000n,
   paymasterPostOp: 0n,

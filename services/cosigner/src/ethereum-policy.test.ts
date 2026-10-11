@@ -2,8 +2,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import type { Address, Hex } from "viem";
+import { encodeFunctionData, erc20Abi } from "viem";
 import {
+  DEPLOYMENTS,
+  PROTOCOLS,
+  aavePoolAbi,
   GAS,
+  USDC,
+  appParams,
+  useAppCall,
   batchCall,
   deployment,
   payContactCall,
@@ -27,8 +34,8 @@ const thief: Contact = { id: "thief", name: "Mr. Smith", ethAddress: DEMO_ATTACK
 
 const rulebook = { ...defaultRulebook(), contacts: DEMO_CONTACTS };
 const target = rulesTarget(rulebook, USDC_CHF);
-const settings = { mpcSigner: SWISSQUOTE, passkeyX: PASSKEY.x, passkeyY: PASSKEY.y, contactsRoot: target.contactsRoot, dailyLimit: target.dailyLimit };
-const ctx: EthPolicyContext = { account: ACCOUNT, settings, passkey: PASSKEY, rulebook, target, usdcChf: USDC_CHF, swissquote: SWISSQUOTE };
+const settings = { factory: DEPLOYMENTS.factory, mpcSigner: SWISSQUOTE, passkeyX: PASSKEY.x, passkeyY: PASSKEY.y, contactsRoot: target.contactsRoot, dailyLimit: target.dailyLimit };
+const ctx: EthPolicyContext = { account: ACCOUNT, settings, passkey: PASSKEY, rulebook, target, usdcChf: USDC_CHF, ethChf: 2_500, swissquote: SWISSQUOTE };
 
 const op = (callData: Hex, extra: Partial<UserOp> = {}): UserOp => ({
   sender: ACCOUNT,
@@ -98,4 +105,52 @@ test("one payment at a time, plus at most a small fee to Swissquote", () => {
   assert.deepEqual(reviewEthOp(withFee, ctx).fee, 10_000n);
   refused(() => reviewEthOp(op(batchCall([usdcTransfer(leo, 1n), usdcTransfer(leo, 1n)])), ctx), /one payment at a time/);
   refused(() => reviewEthOp(op(batchCall([usdcTransfer(leo, 1n), usdcTransfer(SWISSQUOTE, 50_000_000n)])), ctx), /fee is too high/);
+});
+
+const swap = (checked: boolean) =>
+  op(useAppCall(DEPLOYMENTS.adapters.uniswap, appParams({ app: "uniswap", tokenIn: USDC.address, amountIn: 10_000_000n, minOut: 1n }), checked));
+
+test("approved apps are written on-chain only once in force", () => {
+  const withUniswap = { ...ctx, target: rulesTarget({ ...rulebook, apps: ["uniswap"] }, USDC_CHF) };
+  const approve = op(batchCall([selfCall(ACCOUNT, { kind: "setApp", app: DEPLOYMENTS.adapters.uniswap, approved: true })]));
+  assert.ok(authorizeEthOp(approve, withUniswap));
+  refused(() => authorizeEthOp(approve, ctx), /waiting period/);
+});
+
+test("an app outside the approved ones: Swissquote explains it and the client confirms", () => {
+  const review = reviewEthOp(swap(true), ctx);
+  assert.equal(review.shield?.verdict, "NEEDS_CONFIRMATION");
+  assert.match(review.shield!.reasons.join(" "), /exchange USDC 10.00 .*Uniswap.*back to your own safe.*not one of your approved apps/);
+  refused(() => authorizeEthOp(swap(true), ctx), /confirmation first/);
+  assert.ok(authorizeEthOp(swap(true), ctx, true));
+
+  const approvedCtx = { ...ctx, rulebook: { ...rulebook, apps: ["uniswap"] } };
+  assert.equal(reviewEthOp(swap(true), approvedCtx).shield?.verdict, "APPROVE");
+});
+
+test("only vetted adapters, and never while frozen", () => {
+  const unknown = op(useAppCall(SWISSQUOTE, "0x", true));
+  refused(() => reviewEthOp(unknown, ctx), /not vetted/);
+  const frozen = { ...ctx, rulebook: { ...rulebook, frozen: true } };
+  refused(() => authorizeEthOp(swap(true), frozen, true), /frozen/);
+});
+
+const call = (target: Address, data: Hex) => op(batchCall([{ target, value: 0n, data }]));
+const approve = (spender: Address) => call(PROTOCOLS.weth, encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [spender, 10n ** 15n] }));
+const supply = (onBehalfOf: Address) =>
+  call(PROTOCOLS.aave.pool, encodeFunctionData({ abi: aavePoolAbi, functionName: "supply", args: [PROTOCOLS.weth, 10n ** 15n, onBehalfOf, 0] }));
+const withdraw = (to: Address) => call(PROTOCOLS.aave.pool, encodeFunctionData({ abi: aavePoolAbi, functionName: "withdraw", args: [PROTOCOLS.weth, 10n ** 15n, to] }));
+
+test("a connected app (app.aave.com): Aave approvals and deposits for the safe itself, after the client confirms", () => {
+  assert.equal(reviewEthOp(approve(PROTOCOLS.aave.pool), ctx).shield?.verdict, "NEEDS_CONFIRMATION");
+  refused(() => authorizeEthOp(supply(ACCOUNT), ctx), /confirmation first/);
+  assert.ok(authorizeEthOp(supply(ACCOUNT), ctx, true));
+  assert.ok(authorizeEthOp(withdraw(ACCOUNT), ctx, true));
+  assert.match(reviewEthOp(supply(ACCOUNT), ctx).shield!.reasons.join(" "), /deposit ETH 0.001.* in Aave/);
+});
+
+test("a connected app cannot send the money elsewhere or get a token approval for itself", () => {
+  refused(() => reviewEthOp(approve(DEMO_ATTACKER_ETH_ADDRESS), ctx), /only lets apps it has vetted/);
+  refused(() => reviewEthOp(supply(DEMO_ATTACKER_ETH_ADDRESS), ctx), /credited to someone else/);
+  refused(() => reviewEthOp(withdraw(DEMO_ATTACKER_ETH_ADDRESS), ctx), /go to someone else/);
 });

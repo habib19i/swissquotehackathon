@@ -12,6 +12,7 @@ import { hexToBytes, type Hex } from "viem";
 import { newPocketKey } from "@sqw/bitcoin";
 import {
   accountAddress,
+  accountSettings,
   baseClient,
   batchCall,
   ethOwnershipDigest,
@@ -124,7 +125,7 @@ run(async () => {
   // 2. The USDC account: Swissquote computes the address; the phone checks it independently.
   const passkey = softwarePasskey();
   const record = await call<EthAccountRecord>(wallet("/ethereum"), { passkeySpki: passkey.spki });
-  const settings: AccountSettings = { ...record.settings, dailyLimit: BigInt(record.settings.dailyLimit) };
+  const settings: AccountSettings = accountSettings(record);
   if (settings.mpcSigner !== mpcSignerAddress(mpcPublicKey)) throw new Error("Wrong MPC signer");
   if ((await accountAddress(client, settings)) !== record.address) throw new Error("Address mismatch");
   console.log(`1. USDC account ${record.address} (not deployed yet), daily limit ${formatUsdc(settings.dailyLimit)}`);

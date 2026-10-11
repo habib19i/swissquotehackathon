@@ -16,13 +16,13 @@ export default function ReceivePage() {
 
 type Target = "savings" | "pocket" | "usdc";
 
-const PLACES: Record<Target, string> = { savings: "Savings safe", pocket: "Spending pocket", usdc: "digital dollars" };
+const PLACES: Record<Target, string> = { savings: "Savings safe", pocket: "Spending pocket", usdc: "USDC" };
 const EXPLAINED: Record<Target, string> = {
   savings: "For larger amounts. Moving them out needs your Face ID and Swissquote's check.",
   pocket: "For everyday payments with Face ID only. Keep about CHF 100 here.",
-  usdc: "Digital dollars (USDC) on the Base network. Face ID pays your contacts within your daily limit.",
+  usdc: "USDC on the Base network. Face ID pays your contacts within your daily limit.",
 };
-/** The faucet gives the demo account small amounts of test USDC, so digital dollar transfers are smaller. */
+/** The faucet gives the demo account small amounts of test USDC, so USDC transfers are smaller. */
 const TRANSFER_AMOUNTS_CHF: Record<Target, number[]> = { savings: [50, 100, 200], pocket: [50, 100, 200], usdc: [5, 10, 15] };
 
 function Receive({ profile }: { profile: WalletProfile }) {
@@ -47,9 +47,9 @@ function Receive({ profile }: { profile: WalletProfile }) {
     setCopied(false);
     setQr(undefined);
     if (!address) return;
-    // BIP-21 for bitcoin, EIP-681 (address on chain 84532) for digital dollars.
+    // BIP-21 for bitcoin, EIP-681 (address on chain 84532) for USDC.
     const uri = target === "usdc" ? `ethereum:${address}@84532` : `bitcoin:${address}`;
-    QRCode.toDataURL(uri, { margin: 0, width: 480, color: { dark: "#13212b", light: "#ffffff" } })
+    QRCode.toDataURL(uri, { margin: 0, width: 480, color: { dark: "#000000", light: "#ffffff" } })
       .then(setQr)
       .catch(() => setQr(undefined));
   }, [address, target]);
@@ -67,7 +67,7 @@ function Receive({ profile }: { profile: WalletProfile }) {
       if (target === "usdc") {
         const txHash = await cosigner.demoTransferUsdc(profile.walletId, amountChf);
         const link = { href: explorer.baseTx(txHash), label: `View ${shortId(txHash)} on Base` };
-        setResult({ ok: true, text: `${formatChf(amountChf)} in digital dollars has arrived.`, link });
+        setResult({ ok: true, text: `${formatChf(amountChf)} in USDC has arrived.`, link });
       } else {
         const txid = await cosigner.demoTransfer(profile.walletId, amountChf, target);
         const link = { href: explorer.btcTx(txid), label: `View ${shortId(txid)} on the Bitcoin network` };
@@ -123,7 +123,7 @@ function Receive({ profile }: { profile: WalletProfile }) {
           Spending pocket
         </button>
         <button aria-pressed={target === "usdc"} onClick={() => setTarget("usdc")}>
-          Digital dollars
+          USDC
         </button>
       </div>
       <p className="muted">{EXPLAINED[target]}</p>

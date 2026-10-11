@@ -5,3 +5,4 @@ export * from "./config";
 export * from "./demo";
 export * from "./recovery";
 export * from "./assistant";
+export * from "./apps";

@@ -1,15 +1,35 @@
 /**
- * The payment assistant on the phone (CLAUDE.md section 9). The Planner (server) turns words into a
- * draft; the rules (@sqw/shared) resolve it here; the payment is then prepared like any other, for the
- * confirmation card. The assistant holds no key and sends nothing.
+ * The assistant on the phone (CLAUDE.md section 9). The Planner (server) turns words into a draft; the
+ * rules (@sqw/shared) resolve it here; the payment, exchange or Aave operation is then prepared exactly
+ * like one from Send or Explore, for the confirmation card. The assistant holds no key and sends nothing.
  */
+import { maxUint256, parseUnits } from "viem";
 import { chfToSats } from "@sqw/bitcoin";
-import { usdcForChf, usdcUnits } from "@sqw/ethereum";
+import { PROTOCOLS, USDC, formatEth, formatUsdc, minimumOut, quoteSwap, usdcForChf, usdcUnits } from "@sqw/ethereum";
 import type { AssistantLanguage, Contact, Resolution } from "@sqw/shared";
 import type { PlannerResult } from "./planner";
 import { preparePayment, type PreparedPayment } from "../wallet-bitcoin";
-import { prepareUsdcPayment, type UsdcPayment } from "../wallet-usdc";
+import { loadPositions, prepareAppUse, type AppUse } from "../wallet-defi";
+import { baseReader, loadUsdcBalance, prepareUsdcPayment, type UsdcPayment } from "../wallet-usdc";
 import type { WalletProfile } from "../profile";
+
+/** The assistant starts in English; the client can switch to French, German or Italian. */
+export const DEFAULT_LANGUAGE: AssistantLanguage = "en";
+
+export const EXAMPLE_REQUEST: Record<AssistantLanguage, string> = {
+  en: "Send 20 francs to Léo",
+  fr: "Envoie 20 francs à Léo",
+  de: "Schick Léo 20 Franken",
+  it: "Manda 20 franchi a Léo",
+};
+
+/** Suggestions shown before the first request, one per thing the assistant can do. */
+export const SUGGESTIONS: Record<AssistantLanguage, string[]> = {
+  en: ["Send 20 francs to Léo", "Exchange 1 USDC for ETH", "Put all my ETH in Aave", "Approve Uniswap", "Add a new contact"],
+  fr: ["Envoie 20 francs à Léo", "Échange 1 USDC contre de l’ETH", "Place tout mon ETH sur Aave", "Approuve Uniswap", "Ajoute un nouveau contact"],
+  de: ["Schick Léo 20 Franken", "Tausche 1 USDC in ETH", "Leg mein ganzes ETH auf Aave", "Gib Uniswap frei", "Füge einen neuen Kontakt hinzu"],
+  it: ["Manda 20 franchi a Léo", "Cambia 1 USDC in ETH", "Metti tutti i miei ETH su Aave", "Approva Uniswap", "Aggiungi un nuovo contatto"],
+};
 
 /** Sends the request text and the contacts' first names only. */
 export async function askPlanner(text: string, contacts: Contact[]): Promise<PlannerResult> {
@@ -82,4 +102,46 @@ export function listen(
   recognition.onend = () => onEnd();
   recognition.start();
   return () => recognition.stop();
+}
+
+// ---------------------------------------------------------------- Uniswap and Aave
+
+/** A decimal amount as token units, without floating-point noise ("0.1", not "0.1000000000000000055"). */
+const tokenUnits = (amount: number, decimals: number) =>
+  parseUnits(amount.toLocaleString("en-US", { useGrouping: false, maximumFractionDigits: decimals }), decimals);
+
+/** The resolved exchange or Aave request as a real operation, prepared exactly like one from Explore. */
+export async function prepareAppPlan(
+  profile: WalletProfile,
+  plan: Extract<Resolution, { kind: "swap" | "earn" }>,
+  prices: { usdcChf: number; ethChf: number },
+): Promise<AppUse> {
+  const positions = await loadPositions(profile);
+  if (!positions) throw new Error("Your safe was opened before apps were available. Open a new safe to use them.");
+
+  if (plan.kind === "swap") {
+    const fromUsdc = plan.from === "USDC";
+    const amountIn =
+      plan.currency === "CHF"
+        ? fromUsdc
+          ? usdcForChf(plan.amount, prices.usdcChf)
+          : tokenUnits(plan.amount / prices.ethChf, 18)
+        : fromUsdc
+          ? usdcUnits(plan.amount)
+          : tokenUnits(plan.amount, 18);
+    const have = fromUsdc ? await loadUsdcBalance(profile) : positions.eth;
+    if (amountIn > have) throw new Error(`You have ${fromUsdc ? formatUsdc(have) : formatEth(have)} in your safe, not enough for this exchange.`);
+    const tokenIn = fromUsdc ? USDC.address : PROTOCOLS.weth;
+    const quote = await quoteSwap(baseReader, tokenIn, amountIn);
+    return prepareAppUse(profile, { app: "uniswap", tokenIn, amountIn, minOut: minimumOut(quote) });
+  }
+
+  const withdraw = plan.action === "withdraw";
+  const available = withdraw ? positions.ethInAave : positions.eth;
+  if (available === 0n) throw new Error(withdraw ? "You have no ETH in Aave." : "You have no ETH yet. Ask me to exchange some USDC for ETH first.");
+  const wanted = plan.amount === "all" ? available : tokenUnits(plan.currency === "CHF" ? plan.amount / prices.ethChf : plan.amount, 18);
+  if (wanted > available) throw new Error(`You have ${formatEth(available)} ${withdraw ? "in Aave" : "in your safe"}, not enough for this.`);
+  // "Everything" from Aave includes the interest earned up to the moment it is carried out.
+  const amount = withdraw && wanted === available ? maxUint256 : wanted;
+  return prepareAppUse(profile, { app: "aave", action: plan.action, amount });
 }

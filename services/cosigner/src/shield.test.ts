@@ -73,7 +73,7 @@ test("adding a sanctioned, reported, invalid or already known address is blocked
   };
   blocked({ name: "X", btcAddress: sanctioned }, /sanctions list/);
   blocked({ name: "X", btcAddress: scam }, /reported as a scam/);
-  blocked({ name: "X", ethAddress: "0x1234" }, /not a valid digital dollar/);
+  blocked({ name: "X", ethAddress: "0x1234" }, /not a valid USDC/);
   blocked({ name: "X", btcAddress: leo }, /already belongs to Léo/);
-  blocked({ name: "X" }, /needs a Bitcoin or a digital dollar address/);
+  blocked({ name: "X" }, /needs a Bitcoin or a USDC address/);
 });

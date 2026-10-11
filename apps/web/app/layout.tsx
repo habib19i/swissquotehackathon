@@ -1,9 +1,12 @@
 import type { Metadata, Viewport } from "next";
-import { Instrument_Sans } from "next/font/google";
+import { Geist } from "next/font/google";
 import { WalletProvider } from "../components/wallet-context";
+import { APPEARANCE_BOOT_SCRIPT } from "../lib/appearance";
+import { AppearanceSync } from "../components/appearance-sync";
+import { ConnectOverlay } from "../components/connect-overlay";
 import "./globals.css";
 
-const sans = Instrument_Sans({ subsets: ["latin"], variable: "--font-sans", axes: ["wdth"] });
+const sans = Geist({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
   title: "Swissquote Wallet — hackathon prototype",
@@ -13,14 +16,24 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#f1f3f2",
+  themeColor: "#ffffff",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={sans.variable}>
+    <html lang="en" className={sans.variable} data-theme="light" data-paper="swissquote" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: APPEARANCE_BOOT_SCRIPT }} />
+      </head>
       <body>
-        <WalletProvider>{children}</WalletProvider>
+        <AppearanceSync />
+        <a href="#main" className="skip-link">
+          Skip to content
+        </a>
+        <WalletProvider>
+          {children}
+          <ConnectOverlay />
+        </WalletProvider>
       </body>
     </html>
   );

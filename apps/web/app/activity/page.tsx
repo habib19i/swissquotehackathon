@@ -37,7 +37,7 @@ function Activity({ profile }: { profile: WalletProfile }) {
   };
 
   return (
-    <Screen back={{ href: "/" }}>
+    <Screen tabs>
       <h1>Activity</h1>
       {error && <p className="notice error">{error}</p>}
       {unavailable.length > 0 && (
@@ -53,7 +53,7 @@ function Activity({ profile }: { profile: WalletProfile }) {
                   <span className="row-title">{item.label}</span>
                   <br />
                   <span className="small muted">
-                    {item.asset === "USDC" ? "Digital dollars · " : "Bitcoin · "}
+                    {item.asset === "USDC" ? "USDC · " : "Bitcoin · "}
                     {item.confirmed ? (item.time ? when.format(item.time) : "Confirmed") : "On its way"}
                     {item.fee > 0n && `, network fee ${chf(item, item.fee)}`}
                   </span>

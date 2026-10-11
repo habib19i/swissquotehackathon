@@ -13,7 +13,8 @@
     "m3-check": "tsx --env-file-if-exists=../../.env src/m3-check.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --import tsx --test src/*.test.ts",
-    "m4-check": "tsx --env-file-if-exists=../../.env src/m4-check.ts"
+    "m4-check": "tsx --env-file-if-exists=../../.env src/m4-check.ts",
+    "apps-check": "tsx --env-file-if-exists=../../.env src/apps-check.ts"
   },
   "dependencies": {
     "@noble/curves": "2.4.0",

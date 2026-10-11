@@ -35,7 +35,7 @@ export async function finishSetup(profile: WalletProfile, share: DklsKeyshare, p
     }
   }
   if (!record.ownershipVerifiedAt) record = await proveOwnership(profile, share);
-  // Public keys only, no Face ID. A passkey Base cannot check leaves the safe without digital dollars.
+  // Public keys only, no Face ID. A passkey Base cannot check leaves the safe without USDC.
   const usdc = await usdcAccount(profile).catch(() => undefined);
   if (usdc && !usdc.ownershipVerifiedAt) await proveUsdcOwnership(profile, share).catch(() => undefined);
   return (await swissquoteRecord(profile.walletId)) ?? record;

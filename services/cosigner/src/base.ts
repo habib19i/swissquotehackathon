@@ -31,6 +31,7 @@ import {
   accountAddress,
   accountSettings,
   baseClient,
+  supportsApps,
   chain,
   chfForUsdc,
   decodeActions,
@@ -182,12 +183,14 @@ export function baseService(db: DatabaseSync, wallet: HotWallet) {
   async function policyContext(w: StoredWallet): Promise<EthPolicyContext> {
     const eth = requireEth(w);
     const rate = await usdcChf();
+    const { ethChf } = await prices();
     return {
+      ethChf,
       account: eth.address,
       settings: accountSettings(eth),
       passkey: eth.passkey,
       rulebook: w.rulebook,
-      target: rulesTarget(w.rulebook, rate),
+      target: rulesTarget(w.rulebook, rate, supportsApps(eth)),
       usdcChf: rate,
       swissquote,
     };
@@ -195,6 +198,13 @@ export function baseService(db: DatabaseSync, wallet: HotWallet) {
 
   const nonceOf = (account: Address) =>
     client.readContract({ address: ENTRY_POINT, abi: entryPoint09Abi, functionName: "getNonce", args: [account, 0n] });
+
+  /** Execution gas: simulated as the EntryPoint would run it, with a margin; defaults before deployment. */
+  async function callGas(account: Address, callData: Hex, deployed: boolean): Promise<bigint> {
+    if (!deployed) return GAS.callUndeployed;
+    const measured = await client.estimateGas({ account: ENTRY_POINT, to: account, data: callData }).catch(() => undefined);
+    return measured ? (measured * 13n) / 10n + 30_000n : GAS.call;
+  }
 
   /** Simulates the account call as the EntryPoint would make it, to explain a refusal before Face ID. */
   async function preflight(account: Address, callData: Hex) {
@@ -221,6 +231,7 @@ export function baseService(db: DatabaseSync, wallet: HotWallet) {
       }
       const target = rulesTarget(w.rulebook, await usdcChf());
       const settings: AccountSettings = {
+        factory: DEPLOYMENTS.factory,
         mpcSigner: mpcSignerAddress(w.mpcPublicKey),
         passkeyX: passkey.x,
         passkeyY: passkey.y,
@@ -228,7 +239,8 @@ export function baseService(db: DatabaseSync, wallet: HotWallet) {
         dailyLimit: target.dailyLimit,
       };
       const address = await accountAddress(client, settings);
-      return { address, settings: { ...settings, dailyLimit: String(settings.dailyLimit) }, passkey };
+      const { factory, ...created } = settings;
+      return { address, factory, settings: { ...created, dailyLimit: String(created.dailyLimit) }, passkey };
     },
 
     async status(w: StoredWallet): Promise<EthStatus> {
@@ -241,8 +253,15 @@ export function baseService(db: DatabaseSync, wallet: HotWallet) {
         deployed: onChain.deployed,
         balance: String(balance),
         usdcChf: ctx.usdcChf,
-        onChain: { ...onChain, dailyLimit: String(onChain.dailyLimit), remainingToday: String(onChain.remainingToday) },
-        target: { ...ctx.target, dailyLimit: String(ctx.target.dailyLimit) },
+        onChain: {
+          ...onChain,
+          dailyLimit: String(onChain.dailyLimit),
+          remainingToday: String(onChain.remainingToday),
+          appDailyLimit: String(onChain.appDailyLimit),
+          remainingAppToday: String(onChain.remainingAppToday),
+        },
+        target: { ...ctx.target, dailyLimit: String(ctx.target.dailyLimit), appLimit: String(ctx.target.appLimit) },
+        appsSupported: supportsApps(eth),
         rulesUpToDate: syncActions(onChain, ctx.target).length === 0,
         passkeyUpToDate: sameKey(onChain.passkeyX, eth.passkey.x) && sameKey(onChain.passkeyY, eth.passkey.y),
       };
@@ -264,7 +283,7 @@ export function baseService(db: DatabaseSync, wallet: HotWallet) {
         sender: eth.address,
         nonce,
         callData,
-        callGasLimit: GAS.call,
+        callGasLimit: await callGas(eth.address, callData, deployed),
         verificationGasLimit: deployed ? GAS.verification : GAS.verificationWithDeployment,
         preVerificationGas: GAS.preVerification,
         ...gas,
@@ -288,11 +307,13 @@ export function baseService(db: DatabaseSync, wallet: HotWallet) {
           if (err instanceof UnsupportedCallError) throw new PolicyError(err.message);
           throw err;
         }
-        const [pay] = actions;
-        if (actions.length !== 1 || pay.kind !== "payContact") throw new PolicyError("Face ID alone can only pay an approved contact.");
+        const [action] = actions;
+        const faceIdAlone = actions.length === 1 && (action.kind === "payContact" || (action.kind === "useApp" && !action.checked));
+        if (!faceIdAlone) throw new PolicyError("Face ID alone can only pay an approved contact or use an approved app.");
         if (deployed) await preflight(eth.address, callData);
-        paysSomeone = true;
-        paidFee = pay.fee;
+        // Approved apps are sponsored on both plans in this prototype: there is no fee field to pay from.
+        paysSomeone = action.kind === "payContact";
+        paidFee = action.kind === "payContact" ? action.fee : 0n;
       } else {
         const checked = reviewEthOp(op, ctx);
         if (checked.shield?.verdict === "BLOCKED") throw new PolicyError(checked.shield.reasons.join(" "));

@@ -244,7 +244,7 @@ export default function RecoverPage() {
       {result?.sweepError && <p className="notice">Your old Spending pocket could not be moved yet: {result.sweepError}</p>}
       {result?.baseTxHash && (
         <p className="notice ok">
-          Your digital dollars now answer to this phone&rsquo;s Face ID. The lost phone&rsquo;s Face ID no longer works.
+          Your USDC now answer to this phone&rsquo;s Face ID. The lost phone&rsquo;s Face ID no longer works.
           <br />
           <a className="small" href={explorer.baseTx(result.baseTxHash)} target="_blank" rel="noreferrer">
             View {shortId(result.baseTxHash)} on Base
@@ -252,7 +252,7 @@ export default function RecoverPage() {
         </p>
       )}
       {result?.baseError && (
-        <p className="notice">Your digital dollars could not be switched to this phone yet: {result.baseError}. You can retry from your home screen.</p>
+        <p className="notice">Your USDC could not be switched to this phone yet: {result.baseError}. You can retry from your home screen.</p>
       )}
     </Screen>
   );

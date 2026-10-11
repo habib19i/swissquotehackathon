@@ -46,7 +46,7 @@ export interface RecoveryResult {
   profile: WalletProfile;
   sweepTxid?: string;
   sweepError?: string;
-  /** The account on Base switched to this phone's passkey (if the safe has digital dollars). */
+  /** The account on Base switched to this phone's passkey (if the safe has USDC). */
   baseTxHash?: string;
   baseError?: string;
 }
@@ -93,7 +93,7 @@ export async function completeRecovery(
   };
   await saveProfile(profile);
 
-  // Swissquote moves the refill destination to the new pocket and the passkey of the digital dollar
+  // Swissquote moves the refill destination to the new pocket and the passkey of the USDC
   // account to the new phone's, only for a recovery the provider completed.
   const updated = await cosigner.recovered(record.walletId, recoveryId, profile.pocketPublicKey, passkey.publicKey);
   if (updated.pocketAddress !== profile.pocketAddress) throw new Error("Swissquote recorded a different Spending pocket.");

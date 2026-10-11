@@ -81,7 +81,7 @@ function Attacker({ profile }: { profile: WalletProfile }) {
           const stopped = btc.verdict === "BLOCKED" && usdc.verdict === "BLOCKED";
           return {
             verdict: stopped ? "refused" : "allowed",
-            lines: [`Swissquote: ${btc.verdict} in bitcoin, ${usdc.verdict} in digital dollars.`, ...btc.reasons],
+            lines: [`Swissquote: ${btc.verdict} in bitcoin, ${usdc.verdict} in USDC.`, ...btc.reasons],
           };
         }),
     },
@@ -113,7 +113,7 @@ function Attacker({ profile }: { profile: WalletProfile }) {
             verdict: "allowed",
             lines: [
               `He can spend the Spending pocket: at most ${formatSatsAsChf(pocket, price?.btcChf)} today, never more than its size of ${formatChf(100)}.`,
-              `In digital dollars, he can only pay your approved contacts (your family), up to your daily limit of ${formatChf(100)}: your account on Base checks this itself.`,
+              `In USDC, he can only pay your approved contacts (your family), up to your daily limit of ${formatChf(100)}: your account on Base checks this itself.`,
               "Everything else needs Swissquote's check, which stops new recipients and large amounts.",
             ],
           };

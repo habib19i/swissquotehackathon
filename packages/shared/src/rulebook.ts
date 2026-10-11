@@ -9,6 +9,7 @@ import type { ChangeDirection, Contact, Rulebook, RulebookChange } from "./types
 
 export const DEFAULT_DAILY_LIMIT_CHF = 100;
 export const DEFAULT_POCKET_SIZE_CHF = 100;
+export const DEFAULT_APP_LIMIT_CHF = 500;
 
 export function defaultRulebook(): Rulebook {
   return {
@@ -16,6 +17,8 @@ export function defaultRulebook(): Rulebook {
     dailyLimitChf: DEFAULT_DAILY_LIMIT_CHF,
     pocketSizeChf: DEFAULT_POCKET_SIZE_CHF,
     frozen: false,
+    apps: [],
+    appLimitChf: DEFAULT_APP_LIMIT_CHF,
   };
 }
 
@@ -58,9 +61,11 @@ export function classifyChange(current: Rulebook, change: RulebookChange): Chang
   switch (change.kind) {
     case "addContact":
     case "unfreeze":
+    case "addApp":
       return "loosening";
     case "removeContact":
     case "freeze":
+    case "removeApp":
       return "tightening";
     case "setDailyLimit":
       return change.dailyLimitChf > current.dailyLimitChf ? "loosening" : "tightening";
@@ -83,6 +88,10 @@ export function applyChange(current: Rulebook, change: RulebookChange): Rulebook
       return { ...current, frozen: true };
     case "unfreeze":
       return { ...current, frozen: false };
+    case "addApp":
+      return { ...current, apps: [...(current.apps ?? []), change.appId] };
+    case "removeApp":
+      return { ...current, apps: (current.apps ?? []).filter((id) => id !== change.appId) };
   }
 }
 

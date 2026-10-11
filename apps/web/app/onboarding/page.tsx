@@ -125,7 +125,7 @@ export default function OnboardingPage() {
       <Screen actions={<button className="button" onClick={() => setStep("face-id")}>Open my safe</button>}>
         <h1>Open your own safe</h1>
         <p className="lead">
-          A safe for your bitcoin and digital dollars that only you can open, with your face. Swissquote watches over
+          A safe for your bitcoin and USDC that only you can open, with your face. Swissquote watches over
           it, but can never open it alone.
         </p>
         <ProtectedBySwissquote />
@@ -213,7 +213,7 @@ export default function OnboardingPage() {
         <li className="row">You hold one piece, on this phone, unlocked only with Face ID.</li>
         <li className="row">Swissquote holds one piece, to check your larger payments.</li>
         <li className="row">An independent safe-keeper holds one piece, to help you if you lose your phone.</li>
-        <li className="row">The same key holds your bitcoin and your digital dollars (USDC).</li>
+        <li className="row">The same key holds your bitcoin and your USDC.</li>
       </ul>
       <p className="protected">
         <CheckIcon size={22} /> Swissquote has verified that this safe is yours

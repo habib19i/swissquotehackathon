@@ -1,5 +1,6 @@
 export * from "./abi";
 export * from "./account";
+export * from "./apps";
 export * from "./calls";
 export * from "./client";
 export * from "./config";

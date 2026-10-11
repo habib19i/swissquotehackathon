@@ -14,7 +14,9 @@ The day before (test coins need time):
   - **bitcoin:** at least CHF 300 *ready* (signet faucet to the address shown; faucet coins need a block);
   - **test USDC:** at least USDC 20 (faucet.circle.com, network Base Sepolia, to the Base address shown);
   - **gas deposit:** at least 0.005 ETH (`pnpm --filter @sqw/cosigner fund:paymaster` if lower).
-- [ ] The payment assistant answers (`LLM_API_KEY` in `.env`): try "Send 2 USDC to my son" once.
+- [ ] The assistant answers (`LLM_API_KEY` in `.env`): try "Send 2 USDC to my son" once.
+- [ ] For the bonus act: `NEXT_PUBLIC_REOWN_PROJECT_ID` in `.env`, and app.aave.com open in another tab with
+      testnet mode on and the Base Sepolia market selected.
 - [ ] Demo timers in `.env`: `LOOSENING_DELAY_SECONDS=30`, `RECOVERY_WAIT_SECONDS=60`.
 
 Just before:
@@ -39,7 +41,7 @@ Just before:
 5. **Add your recovery key** → **Security key from Swissquote** (or the passkey option, with its warning).
 6. **Choose your plan** → Premium → **Your safe is ready**.
 7. **Receive** → **Transfer from my Swissquote account**: CHF 100 to the **Spending pocket**, CHF 200 to the
-   **Savings safe**, then **Digital dollars** → CHF 15. (Mock Swissquote account, real test coins.)
+   **Savings safe**, then **USDC** → CHF 15. (Mock Swissquote account, real test coins.)
 
 ## Act 2: pay like Twint (1:30)
 
@@ -58,7 +60,7 @@ Just before:
 **Demo panel** → **Attacker mode** → **Try it** on each line:
 
 1. **Send CHF 5,000 to himself**: *Stopped*: Swissquote blocks large payments to someone never paid, in
-   bitcoin and in digital dollars.
+   bitcoin and in USDC.
 2. **Add himself as a contact**: *On hold* for 24 hours (demo: 30 s), and the client is alerted everywhere.
    Switch to tab **C** (e-banking), **cancel** the request → back in A: *Stopped*.
 3. **Take whatever the rules allow**: the Spending pocket (never more than CHF 100) and payments to the
@@ -72,7 +74,7 @@ Just before:
 3. **Send** → Adam → Bitcoin → CHF 120 → **Pay from my Savings safe**: Face ID, then the **recovery key**
    approves this exact payment, and the independent safe-keeper co-signs instead of Swissquote.
    *"If Swissquote disappeared tomorrow, she still moves everything, with her own keys."*
-4. **Bring back** Swissquote. (Digital dollar payments wait while Swissquote is offline: in this prototype
+4. **Bring back** Swissquote. (USDC payments wait while Swissquote is offline: in this prototype
    Swissquote relays them to Base. Say it if asked.)
 
 ## Act 5: lose the phone, get everything back (2:00)
@@ -85,20 +87,39 @@ Just before:
 4. The waiting period starts (48 hours; demo: 60 s). Show tab **C**: the alert, and the real client could
    cancel here. *"If this were a thief, she would see it everywhere and stop it."*
 5. **Bring my safe back** → **Your safe is back**: same Savings safe address, the old Spending pocket moved to
-   the new one, and *"Your digital dollars now answer to this phone's Face ID"*: the lost phone's Face ID no
+   the new one, and *"Your USDC now answer to this phone's Face ID"*: the lost phone's Face ID no
    longer works on Base. Home shows the same balances. *"The key never left the safe-keeper's vault; the old
    piece is now useless."*
 
 Close: *"Self-custody that feels like Twint, with Swissquote's protection at every step. And Swissquote can
 never take the money: it signs the rulebook, not every payment."*
 
+## Bonus: DeFi, protected by Swissquote (1:30, if time allows)
+
+After Act 2 (the safe needs a little USDC):
+
+1. **Assistant**: "Exchange 1 USDC for ETH". The card shows what goes in, what comes back (to your own safe)
+   and Swissquote's check; confirm, Face ID. *"Swissquote vets which apps you can use: no scam tokens."*
+2. **Assistant**: "Approve Aave" → **Approve Aave with Face ID**. The waiting period starts, with alerts, like a
+   new contact. *"Approve an app once, and Face ID is enough, within a daily limit the account enforces."*
+3. After the waiting period: **Explore → Aave** → deposit all the ETH. Face ID alone; show the explorer link.
+4. **WalletConnect**: on app.aave.com, Connect wallet → WalletConnect → copy the link; in the wallet, Explore →
+   **Scan an app's QR code** → paste → **Connect**. Withdraw from Aave's website: each request arrives as a card
+   with Swissquote's check, then Face ID, and the website gets the real transaction hash.
+
+Say plainly if asked: Uniswap's own website cannot connect on Base Sepolia (it does not support that network);
+Uniswap works from Explore and the assistant.
+
 ## If something goes wrong
 
 | Symptom | What to do |
 |---|---|
 | "The network has not confirmed this yet" (bitcoin) | Use coins from Swissquote's transfer (they are confirmed), or pay from the other pocket; a block comes every ~10 minutes. |
-| A digital dollar payment says the network refused | Retry once: Base's public RPC can lag a few seconds behind. |
+| A USDC payment says the network refused | Retry once: Base's public RPC can lag a few seconds behind. |
 | The assistant cannot be reached | It says why (quota, network). Use **Send** instead; the same card follows. |
 | Face ID does not appear | Use http://localhost or https: passkeys need a secure origin. |
 | "You already have a safe" in Act 1 | That client number was used before: pick a new one, or use **Bring my safe to this phone** to show recovery. |
 | Stuck with Swissquote offline | Demo panel → **Bring back**, then reload. |
+| "Face ID key is a type Base cannot check" | The safe got an RSA passkey (older Windows Hello safes): open a new safe. |
+| Explore says the safe was opened before apps | Open a new safe: older safes keep working but cannot use apps. |
+| A website's connection card says it does not offer Base Sepolia | That website does not support the test network (for example app.uniswap.org): use Explore instead. |

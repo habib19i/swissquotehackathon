@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { explorer, type ContactScreening, type EthStatus, type PendingChange, type Rulebook, type RulebookChange } from "@sqw/shared";
+import { appById, explorer, type ContactScreening, type EthStatus, type PendingChange, type Rulebook, type RulebookChange } from "@sqw/shared";
 import { Countdown, DemoModeNote } from "../../components/countdown";
 import { CheckIcon, ShieldIcon } from "../../components/icons";
 import { Screen } from "../../components/screen";
@@ -11,6 +11,8 @@ import { formatChf, shortId } from "../../lib/format";
 import type { WalletProfile } from "../../lib/profile";
 import { loadRulebook, requestChange, type ChangeResult } from "../../lib/rules";
 import { updateRulesOnBase, usdcAccount } from "../../lib/wallet-usdc";
+import { AppMark } from "../../components/tokens";
+import Link from "next/link";
 
 export default function RulesPage() {
   return <RequireWallet>{(profile) => <Rules profile={profile} />}</RequireWallet>;
@@ -51,6 +53,16 @@ function Rules({ profile }: { profile: WalletProfile }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // "Add Marc as a contact" in the assistant opens the form here, with the name filled in.
+  useEffect(() => {
+    const name = new URLSearchParams(window.location.search).get("add");
+    if (!name) return;
+    window.history.replaceState(null, "", "/rules");
+    setName(name.slice(0, 40));
+    setAdding(true);
+    setTimeout(() => document.getElementById("contact-address")?.focus(), 0);
+  }, []);
 
   async function change(c: RulebookChange, done: string) {
     setBusy(true);
@@ -103,7 +115,7 @@ function Rules({ profile }: { profile: WalletProfile }) {
   if (!rulebook) return null;
 
   return (
-    <Screen back={{ href: "/" }}>
+    <Screen tabs>
       <h1>Contacts and rules</h1>
       <p className="lead">
         Making your rules stricter is instant. Loosening them takes 24 hours, so you can stop anything you did not ask
@@ -118,7 +130,7 @@ function Rules({ profile }: { profile: WalletProfile }) {
       {onBase && !onBase.rulesUpToDate && pending.length === 0 && (
         <section className="notice warn">
           <p className="row-title">New rules to write on Base</p>
-          <p>Your digital dollar account still follows your previous rules. Confirm with Face ID to bring it up to date.</p>
+          <p>Your USDC account still follows your previous rules. Confirm with Face ID to bring it up to date.</p>
           <button className="button" style={{ marginTop: 12 }} disabled={busy} onClick={writeOnBase}>
             {busy ? "Waiting for Face ID…" : "Update with Face ID"}
           </button>
@@ -134,7 +146,9 @@ function Rules({ profile }: { profile: WalletProfile }) {
                 ? `Daily limit to ${formatChf(p.change.dailyLimitChf)}`
                 : p.change.kind === "setPocketSize"
                   ? `Pocket size to ${formatChf(p.change.pocketSizeChf)}`
-                  : "Unfreezing your safe"}
+                  : p.change.kind === "addApp"
+                    ? `${appById(p.change.appId)?.name ?? "An app"} with Face ID alone`
+                    : "Unfreezing your safe"}
           </p>
           <p>
             Takes effect in <Countdown until={p.effectiveAt} onDone={load} />
@@ -203,7 +217,7 @@ function Rules({ profile }: { profile: WalletProfile }) {
             <input id="contact-address" className="input" value={address} onChange={edited(setAddress)} />
           </div>
           <div className="field" style={{ marginTop: 12 }}>
-            <label htmlFor="contact-usdc">Their digital dollar (USDC) address</label>
+            <label htmlFor="contact-usdc">Their USDC address</label>
             <input
               id="contact-usdc"
               className="input"
@@ -225,6 +239,38 @@ function Rules({ profile }: { profile: WalletProfile }) {
           Add a contact
         </button>
       )}
+
+      <h2>Approved apps</h2>
+      <ul className="rows">
+        {(rulebook.apps ?? []).length === 0 && (
+          <li className="row">
+            <span className="row-main small muted">
+              None yet. In <Link href="/explore">Explore</Link>, approve an app to use it with Face ID alone, within a daily limit.
+            </span>
+          </li>
+        )}
+        {(rulebook.apps ?? []).map((id) => {
+          const app = appById(id);
+          return (
+            <li key={id} className="row">
+              {app && <AppMark id={app.id} size={40} />}
+              <span className="row-main">
+                <span className="row-title">{app?.name ?? id}</span>
+                <br />
+                <span className="small muted">Face ID alone, within a daily limit</span>
+              </span>
+              <button
+                className="button quiet"
+                style={{ width: "auto" }}
+                disabled={busy}
+                onClick={() => change({ kind: "removeApp", appId: id }, `Done: ${app?.name ?? "the app"} now needs Swissquote's check again.`)}
+              >
+                Remove
+              </button>
+            </li>
+          );
+        })}
+      </ul>
 
       <h2>Your limits</h2>
       <ul className="rows">

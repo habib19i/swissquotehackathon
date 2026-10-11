@@ -4,13 +4,14 @@ A self-custody wallet Swissquote could launch for its clients: **their keys, the
 their Swissquote account.** Built for the Swissquote Wallet Challenge (EPFL, October 2026).
 
 > **Status: the core story works end to end on testnets** (open a safe, pay, lose the phone, recover), with
-> bitcoin on signet and digital dollars (USDC) on Base Sepolia, an attacker mode, a "Swissquote offline" mode,
-> gasless payments and a payment assistant. Every payment shown is a real transaction. Spec: [`CLAUDE.md`](CLAUDE.md).
+> bitcoin on signet and USDC on Base Sepolia, an attacker mode, a "Swissquote offline" mode,
+> gasless payments, an assistant, and **DeFi apps Swissquote has vetted** (Uniswap, Aave, and websites
+> connected with WalletConnect). Every payment shown is a real transaction. Spec: [`CLAUDE.md`](CLAUDE.md).
 > Demo: [`docs/demo-script.md`](docs/demo-script.md).
 
 ## The idea
 
-Swissquote's clients, many of them older and new to crypto, want to own bitcoin and digital dollars without
+Swissquote's clients, many of them older and new to crypto, want to own bitcoin and USDC without
 facing the crypto world alone. So the wallet feels like Twint (Face ID is the only password, people are
 contacts, never addresses, no seed phrase ever) and Swissquote's protection is visible at every step.
 
@@ -36,6 +37,7 @@ disappears**, the phone and the recovery provider still move everything.
 | 3. Attacker mode | a thief with the unlocked phone and the email: CHF 5,000 stopped, new contact on hold and cancelled, recovery refused | — |
 | 4. Swissquote is gone | pocket still works; the Savings safe moves with the recovery key and the independent provider | signet transaction without Swissquote |
 | 5. Lose the phone | recovery on a new phone after the waiting period; same addresses; old Face ID dead on Base | sweep and `setPasskey` |
+| Bonus: DeFi | "Exchange 1 USDC for ETH" in the assistant; Aave with Face ID alone once approved; app.aave.com connected by WalletConnect | Uniswap and Aave on Base Sepolia |
 
 Step by step, with what to say and the fallbacks: [`docs/demo-script.md`](docs/demo-script.md).
 
@@ -44,7 +46,8 @@ Step by step, with what to say and the fallbacks: [`docs/demo-script.md`](docs/d
 ```mermaid
 flowchart TB
   subgraph phone["Client's phone: apps/web, mobile web app (REAL)"]
-    ui["Screens: Home, Send, Receive, Contacts and rules,<br/>Assistant, Activity, Recovery, Demo panel"]
+    ui["Screens: Home, Send, Receive, Explore, Contacts and rules,<br/>Assistant, Activity, Recovery, Demo panel"]
+    wc["WalletConnect (Reown WalletKit)<br/>websites ask, the client confirms"]
     vault[("Share 1 + Spending pocket key<br/>encrypted with a key from Face ID (WebAuthn PRF)")]
     passkey["Wallet passkey (Face ID, P-256)<br/>also signs daily USDC payments"]
     planner["Assistant route (server side of the app)<br/>sends only the request text and first names"]
@@ -67,11 +70,12 @@ flowchart TB
 
   subgraph chains["Testnets (REAL)"]
     btc["Bitcoin signet<br/>Savings safe: P2WPKH of the MPC key<br/>Spending pocket: P2WSH, pocket key OR MPC key"]
-    base["Base Sepolia<br/>RulebookAccount, factory, SwissquotePaymaster<br/>EntryPoint v0.9, Circle test USDC"]
+    base["Base Sepolia<br/>RulebookAccount, factory, SwissquotePaymaster<br/>Uniswap and Aave adapters, EntryPoint v0.9, Circle test USDC"]
   end
 
   llm["Language model, OpenAI-compatible API<br/>demo: Groq gpt-oss-120b, fallback Qwen<br/>production: Apertus, hosted in Switzerland"]
   ebank["E-banking: the client's other device (MOCK)"]
+  dapp["DeFi websites, e.g. app.aave.com"]
 
   ui -- "DKLs23 2-of-3: keygen, sign, recovery" --> s2
   ui -- "DKLs23 2-of-3" --> s3
@@ -84,6 +88,8 @@ flowchart TB
   rp -- "alerts; is Swissquote offline?" --> sq
   planner --> llm
   watcher --> ebank
+  dapp -- "WalletConnect relay" --> wc
+  wc -- "requests checked by Swissquote, then MPC + Face ID" --> fees
 
   classDef mock fill:#fbefd9,stroke:#8c4a00,color:#13212b
   classDef real fill:#e3f0ea,stroke:#1e6a4f,color:#13212b
@@ -99,12 +105,12 @@ browser reaches both services through the web app's origin (`/svc/cosigner`, `/s
 | `apps/web` | Next.js mobile-first web app (the phone), including the assistant's server route |
 | `services/cosigner` | Swissquote co-signer (**mock**): share 2, scam shield, rulebook delays, fees, bundler and paymaster, face check, alerts |
 | `services/recovery-provider` | Independent recovery provider (**mock**, TEE simulated): share 3, recovery key, waiting period |
-| `contracts` | Foundry: `RulebookAccount`, its factory and `SwissquotePaymaster` (Base Sepolia) |
+| `contracts` | Foundry: `RulebookAccount`, its factory, `SwissquotePaymaster`, and the Uniswap and Aave adapters (Base Sepolia) |
 | `packages/mpc` | 2-of-3 threshold ECDSA (DKLs23): keygen, sign, refresh, lost-share recovery, networked protocol |
 | `packages/bitcoin` | Savings safe and Spending pocket scripts, payments, refills, fee sponsoring, BIP-322 |
 | `packages/ethereum` | Account settings and address, UserOperations, call encoding, passkey and MPC signatures, ERC-1271/6492 |
-| `packages/shared` | Types, service contracts, rulebook and Merkle helpers, payment assistant rules |
-| `spikes/m0-mpc` | M0 spike and live end-to-end checks (`m2-check`, `m3-check`, `m4-check`) |
+| `packages/shared` | Types, service contracts, rulebook and Merkle helpers, the assistant's rules, the Explore app list |
+| `spikes/m0-mpc` | M0 spike and live end-to-end checks (`m2-check`, `m3-check`, `m4-check`, `apps-check`) |
 | `docs` | The demo script, and the team's prompts and approved spec elements |
 
 ## Custody model
@@ -181,10 +187,15 @@ price is still to be set.
 
 - **Gasless, done.** Premium: the paymaster on Base and a fee coin on Bitcoin, both signed by Swissquote only
   after checking the exact transaction. Standard: fees in USDC, so the client never needs ETH.
-- **Compliant dApp interaction, not built.** The account already accepts any batch of calls signed with the MPC
-  key after Swissquote's checks, so a dApp flow would go through the same scam shield (allowlisted contracts).
-- **Also built:** the payment assistant (text or voice, four languages), the "Swissquote offline" path guarded
-  by the recovery key, the attacker mode, and the rulebook enforced on-chain on Base.
+- **Compliant dApp interaction, done.** Explore lists apps Swissquote has looked at; Uniswap and Aave are
+  live through Swissquote-vetted adapters that always return the funds to the client's own safe. The client can
+  approve an app in the rulebook (a loosening change: waiting period, alerts) to use it with Face ID alone,
+  within the apps' own daily limit enforced on-chain; any other use is checked and co-signed by Swissquote.
+  Websites connect with real WalletConnect: Swissquote decodes each request and only co-signs calls to vetted
+  contracts for the client's own safe. Details: [DeFi apps and WalletConnect](#defi-apps-and-walletconnect).
+- **Also built:** the assistant (text or voice, four languages: payments, exchanges, Aave, approving an app,
+  adding a contact), the "Swissquote offline" path guarded by the recovery key, the attacker mode, and the
+  rulebook enforced on-chain on Base.
 
 ## Real vs mock
 
@@ -209,6 +220,10 @@ price is still to be set.
 | Test USDC | Circle's test USDC on Base Sepolia |
 | Payment assistant model | Real: gpt-oss-120b on Groq for the demo (fallback Qwen); Apertus, the intended Swiss model, is one setting away (Mock of the Swiss-hosted deployment) |
 | Speech-to-text | Mock (the browser's speech recognition, standing in for a Swiss-hosted service) |
+| Uniswap and Aave | Real protocols on Base Sepolia, used through Swissquote's adapters (verified source) |
+| Other apps in Explore (Compound, Morpho, Lido…) | Listed for discovery only; they cannot be used from the wallet |
+| App logos in Explore | The protocols' own logos (from DefiLlama's icon service), shown only to identify them; they belong to their projects |
+| WalletConnect | Real (Reown WalletKit and relay, the team's Reown project) |
 
 ## AI tools used
 
@@ -226,7 +241,7 @@ price is still to be set.
 Requirements: Node.js 22.13 or later, pnpm 10. Optional: Foundry for the Solidity tests.
 
 ```bash
-cp .env.example .env      # then add LLM_API_KEY for the assistant (see the comments)
+cp .env.example .env      # then add LLM_API_KEY (assistant) and NEXT_PUBLIC_REOWN_PROJECT_ID (WalletConnect)
 pnpm install
 pnpm dev                  # web app (3000), co-signer (4001), recovery provider (4002)
 pnpm test                 # TypeScript tests
@@ -243,7 +258,8 @@ faucet.circle.com, and the paymaster with `pnpm --filter @sqw/cosigner fund:paym
 wallets are mock wallets: Swissquote collects what they receive every 10 minutes, so coins keep circulating.
 
 Live checks against the running services: `pnpm --filter @sqw/spike-m0-mpc m2-check` (Savings safe, refills),
-`m3-check` (rulebook, attacker, face check) and `m4-check` (Base: Face ID payment, rules on-chain, refusals).
+`m3-check` (rulebook, attacker, face check), `m4-check` (Base: Face ID payment, rules on-chain, refusals) and
+`apps-check` (Uniswap and Aave, checked by Swissquote, then with Face ID alone once approved).
 
 ---
 
@@ -397,9 +413,9 @@ failed in the very last round of a recovery while the other had already replaced
 disagree and the recovery would need to be run again; production would make the final round two-phase.
 Alerts reach the app and a mock e-banking page by polling.
 
-### M4: digital dollars on Base
+### M4: USDC on Base
 
-The same 2-of-3 MPC key controls a **USDC account on Base Sepolia** ("Digital dollars" in the app): a smart
+The same 2-of-3 MPC key controls a **USDC account on Base Sepolia** ("USDC" in the app): a smart
 account ([`contracts/src/RulebookAccount.sol`](contracts/src/RulebookAccount.sol), OpenZeppelin Contracts 5.6
 `Account` + ERC-7821 batches, ERC-4337 EntryPoint v0.9) with two keys:
 
@@ -435,8 +451,9 @@ of a third-party provider (no API key; the operations are standard ERC-4337, so 
 
 | Contract (Base Sepolia, source verified on Sourcify) | Address |
 |---|---|
-| `RulebookAccount` (implementation) | [`0x12055a9C83D6590571B1e3125F8382958830C0Fa`](https://sepolia.basescan.org/address/0x12055a9C83D6590571B1e3125F8382958830C0Fa) |
-| `RulebookAccountFactory` (clones; the address commits to every initial setting) | [`0x101b9D7Ca9A55878D8ee39a94eF1b240Af673867`](https://sepolia.basescan.org/address/0x101b9D7Ca9A55878D8ee39a94eF1b240Af673867) |
+| `RulebookAccount` with apps (implementation, current) | [`0x904A17B5549A3D10DAB11763c78dCb38edB27b12`](https://sepolia.basescan.org/address/0x904A17B5549A3D10DAB11763c78dCb38edB27b12) |
+| `RulebookAccountFactory` (clones; the address commits to every initial setting), current | [`0x358afcB62b5F7aCEB91ED56621704EFd12239270`](https://sepolia.basescan.org/address/0x358afcB62b5F7aCEB91ED56621704EFd12239270) |
+| `RulebookAccount` and factory of M4 (safes opened before apps keep working with them) | [`0x12055a9C83D6590571B1e3125F8382958830C0Fa`](https://sepolia.basescan.org/address/0x12055a9C83D6590571B1e3125F8382958830C0Fa), [`0x101b9D7Ca9A55878D8ee39a94eF1b240Af673867`](https://sepolia.basescan.org/address/0x101b9D7Ca9A55878D8ee39a94eF1b240Af673867) |
 | `SwissquotePaymaster` | [`0x325A7E0Ae8adBAeba04Cce4e095B2D11c9e6ABbB`](https://sepolia.basescan.org/address/0x325A7E0Ae8adBAeba04Cce4e095B2D11c9e6ABbB) |
 
 | What | Signed by | Transaction |
@@ -488,3 +505,67 @@ Checked live: eight requests in four languages (including "Send 50 USDC to my so
 en bitcoin", "Schick meiner Tochter 30 Franken in Bitcoin", "Manda 10 dollari a mio figlio", a payment from the
 savings, an address injection and an unknown name) gave the expected outcome with both models (gpt-oss-120b in
 about 0.6 s, Qwen in about 0.2 s), and the walkthrough paid from the card with Face ID.
+
+### DeFi apps and WalletConnect
+
+**Explore** lists DeFi apps in plain language, with a search. Two are live, on Base Sepolia:
+
+- **Uniswap**: exchange USDC for ETH, and back (Uniswap v3, Circle's USDC/WETH 0.3% pool, price from Uniswap's
+  quoter, 1% maximum slippage).
+- **Aave**: earn interest on ETH (Aave v3; on Base Sepolia, Aave's market only takes its own test USDC, so the
+  wallet earns on ETH).
+
+The others (Compound, Morpho, Lido, Aerodrome, Curve, Spark) are shown for discovery; their page says they
+cannot be used from the wallet yet.
+
+**How the account keeps it safe** ([`RulebookAccount.sol`](contracts/src/RulebookAccount.sol),
+[`contracts/src/apps`](contracts/src/apps)): an app is used only through an **adapter** Swissquote vetted, which
+turns "exchange 5 USDC" into the exact calls, with the account itself as the recipient and the token approval
+reset to zero in the same operation. The account refuses any adapter call to itself or carrying ETH, and
+measures the USDC that leaves it.
+
+| Path | Signed by | Checked by |
+|---|---|---|
+| An app the client approved in the rulebook (`useApp`) | Face ID alone | the account: app approved, not frozen, within the apps' own daily limit (CHF 500 by default) |
+| Any vetted app otherwise (`useAppChecked`) | phone + Swissquote (MPC), after the client confirms | Swissquote's review in plain language, then the account |
+| A website connected with WalletConnect | phone + Swissquote (MPC), after the client confirms | Swissquote decodes each call: only Aave's pool, the USDC and WETH approvals to it, deposits credited to the client's safe and withdrawals to it |
+
+Approving an app is a loosening change, like a new contact: waiting period, alerts, cancellable; removing it
+is instant. App operations are sponsored by Swissquote's paymaster on both plans.
+
+**WalletConnect** (Reown WalletKit 1.6, real relay): Explore → "Scan an app's QR code" (camera where the browser
+can read QR codes, or paste the `wc:` link). A connection card shows the website, WalletConnect's verification and
+any scam flag; each request is an approval card with Swissquote's check, then Face ID, and the website gets the
+real transaction hash. Message signing and sending ETH directly are refused with a plain explanation. Works
+with **app.aave.com** in testnet mode (Base Sepolia market, supply WETH). **app.uniswap.org cannot connect**:
+its web app does not support Base Sepolia (only Sepolia and Unichain Sepolia), and the wallet says so; Uniswap
+works from Explore and the assistant. In production, on Base mainnet, Uniswap's website would connect the same
+way as Aave, and its Universal Router calls would need to be added to Swissquote's decoder first.
+
+**The assistant does it too**: "Exchange 1 USDC for ETH", "Put all my ETH in Aave", "Take 0.002 ETH out of
+Aave", "Approve Uniswap" (a button in the chat, then Face ID) and "Add Marc as a contact" (opens the contact
+form with the name filled in: the address is typed there and screened, never taken from the chat). The same
+rules apply: only amounts the client wrote, only apps from Swissquote's list, and "Buy 0.001 ETH" asks how
+much USDC to give rather than guessing a direction.
+
+| Contract (Base Sepolia, source verified on Sourcify) | Address |
+|---|---|
+| `UniswapAdapter` (USDC/WETH, SwapRouter02) | [`0x97242fc04eff425C083F5c1773612aC135BA1433`](https://sepolia.basescan.org/address/0x97242fc04eff425C083F5c1773612aC135BA1433) |
+| `AaveAdapter` (WETH, Aave v3 pool) | [`0xd6041Fe2463687385854866E7e80e28EB06b2Ad5`](https://sepolia.basescan.org/address/0xd6041Fe2463687385854866E7e80e28EB06b2Ad5) |
+
+| Live check (`apps-check`) | Signed by | Transaction |
+|---|---|---|
+| Exchange USDC 0.25 for ETH on Uniswap, before approval | phone + Swissquote (MPC, client confirmed) | [`0xb5399a2f…`](https://sepolia.basescan.org/tx/0xb5399a2fe7820b95ec2a42ae32c510861c42e2472fb3d810c86576504cf27460) |
+| Uniswap and Aave approved, rules written on Base after the waiting period | phone + Swissquote (MPC) | [`0xc0bda721…`](https://sepolia.basescan.org/tx/0xc0bda7210ee7a9258e04505ec01d5786713637bdfed67eefef860c9b2f7d7593) |
+| Exchange USDC 0.25 for ETH on Uniswap | Face ID alone | [`0x6fe96cd7…`](https://sepolia.basescan.org/tx/0x6fe96cd74f3ab7f60e5c1a7c3a61a014b1883d6f82b1eb190016ba7d87178da2) |
+| Deposit the ETH in Aave | Face ID alone | [`0x8ef22291…`](https://sepolia.basescan.org/tx/0x8ef22291decff89a3f4dbcd247955e1cbdb5f27f68779d6288cf8f230fdd9ac1) |
+| Withdraw everything from Aave | Face ID alone | [`0xd6b2c6ed…`](https://sepolia.basescan.org/tx/0xd6b2c6ede6e8d4a40faf8bb02ce2c45472df4cc2b857025b1d202c72838827ac) |
+
+Tests: 25 Solidity tests (including the app rules with a rogue adapter, and fork tests against the real Uniswap
+and Aave on Base Sepolia), Swissquote's policy for app and WalletConnect requests, and the assistant's new
+requests in four languages.
+
+**Known limits.** Swaps are USDC ⇄ ETH only: the apps' daily limit is counted in USDC, and Base Sepolia has
+little Uniswap liquidity beyond this pool. A safe opened before apps existed keeps working but cannot use them
+(open a new safe). Face ID must be a P-256 passkey for Base to check it; the app now asks for P-256 only, falling
+back to RSA (Bitcoin only) where a device cannot make one.

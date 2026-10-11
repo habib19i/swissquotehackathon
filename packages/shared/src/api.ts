@@ -112,6 +112,8 @@ type HexString = `0x${string}`;
 /** The client's RulebookAccount on Base. Its address commits to `settings`. */
 export interface EthAccountRecord {
   address: HexString;
+  /** The factory (account version) that creates it; absent on accounts created before DeFi apps. */
+  factory?: HexString;
   /** What the account is created with on its first operation. dailyLimit: USDC units, decimal string. */
   settings: { mpcSigner: HexString; passkeyX: HexString; passkeyY: HexString; contactsRoot: HexString; dailyLimit: string };
   /** The wallet passkey the account should accept now: a recovery replaces it. */
@@ -129,9 +131,22 @@ export interface EthStatus {
   balance: string;
   /** Swissquote's USDC/CHF rate. */
   usdcChf: number;
-  onChain: { contactsRoot: HexString; dailyLimit: string; frozen: boolean; passkeyX: HexString; passkeyY: HexString; remainingToday: string };
+  onChain: {
+    contactsRoot: HexString;
+    dailyLimit: string;
+    frozen: boolean;
+    passkeyX: HexString;
+    passkeyY: HexString;
+    remainingToday: string;
+    /** Adapters of the approved DeFi apps. */
+    apps: HexString[];
+    appDailyLimit: string;
+    remainingAppToday: string;
+  };
   /** The rules in force at Swissquote, in their on-chain form. */
-  target: { contactsRoot: HexString; dailyLimit: string; frozen: boolean };
+  target: { contactsRoot: HexString; dailyLimit: string; frozen: boolean; apps: HexString[]; appLimit: string };
+  /** False for accounts created before DeFi apps. */
+  appsSupported: boolean;
   rulesUpToDate: boolean;
   passkeyUpToDate: boolean;
 }

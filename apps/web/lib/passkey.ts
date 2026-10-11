@@ -50,24 +50,28 @@ export function passkeysSupported(): boolean {
  */
 export async function createWalletPasskey(client: { name: string; clientNumber: string }) {
   const salt = random(32);
-  const credential = (await navigator.credentials.create({
-    publicKey: {
-      challenge: random(32),
-      rp: { name: RP_NAME },
-      user: { id: random(16), name: client.clientNumber, displayName: client.name },
-      pubKeyCredParams: [
-        { type: "public-key", alg: -7 },
-        { type: "public-key", alg: -257 },
-      ],
-      authenticatorSelection: {
-        authenticatorAttachment: "platform",
-        residentKey: "preferred",
-        userVerification: "required",
+  const create = (algorithms: number[]) =>
+    navigator.credentials.create({
+      publicKey: {
+        challenge: random(32),
+        rp: { name: RP_NAME },
+        user: { id: random(16), name: client.clientNumber, displayName: client.name },
+        pubKeyCredParams: algorithms.map((alg) => ({ type: "public-key", alg })),
+        authenticatorSelection: {
+          authenticatorAttachment: "platform",
+          residentKey: "preferred",
+          userVerification: "required",
+        },
+        extensions: prfInput(salt),
+        timeout: 120_000,
       },
-      extensions: prfInput(salt),
-      timeout: 120_000,
-    },
-  })) as PublicKeyCredential | null;
+    }) as Promise<PublicKeyCredential | null>;
+  // P-256 only: it is the key Base checks on-chain for USDC payments. Some authenticators (Windows Hello)
+  // pick RSA when it is offered at all, so RSA is asked for only if the device cannot make a P-256 key.
+  const credential = await create([-7]).catch((err: Error) => {
+    if (err.name === "NotSupportedError") return create([-257]);
+    throw err;
+  });
   if (!credential) throw new Error("Face ID was cancelled");
 
   const response = credential.response as AuthenticatorAttestationResponse;

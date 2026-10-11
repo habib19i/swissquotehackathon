@@ -94,11 +94,11 @@ export function screenContact(contact: Pick<Contact, "name" | "btcAddress" | "et
   const checks: ShieldCheck[] = [];
   const addresses = [
     contact.btcAddress && { address: contact.btcAddress, kind: "Bitcoin", valid: validBitcoin(contact.btcAddress) },
-    contact.ethAddress && { address: contact.ethAddress, kind: "digital dollar (Base)", valid: isAddress(contact.ethAddress) },
+    contact.ethAddress && { address: contact.ethAddress, kind: "USDC (Base)", valid: isAddress(contact.ethAddress) },
   ].filter(Boolean) as { address: string; kind: string; valid: boolean }[];
 
   if (addresses.length === 0) {
-    checks.push({ label: "Address", result: "fail", detail: "A new contact needs a Bitcoin or a digital dollar address." });
+    checks.push({ label: "Address", result: "fail", detail: "A new contact needs a Bitcoin or a USDC address." });
   }
   for (const { address, kind, valid } of addresses) {
     checks.push(

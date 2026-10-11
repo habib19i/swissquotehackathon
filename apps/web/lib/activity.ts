@@ -1,6 +1,6 @@
 /**
  * The activity feed: every transaction touching the client's safe, on both networks, in plain language.
- * Bitcoin from the signet explorer's API (esplora), digital dollars from Blockscout's API for Base Sepolia.
+ * Bitcoin from the signet explorer's API (esplora), USDC from Blockscout's API for Base Sepolia.
  */
 import { esplora, type EsploraTx } from "@sqw/bitcoin";
 import { DEPLOYMENTS, USDC } from "@sqw/ethereum";
@@ -27,6 +27,9 @@ export interface ActivityItem {
 }
 
 const same = (a: string | undefined, b: string | undefined) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
+
+/** Uniswap's USDC/ETH pool (0.3%) on Base Sepolia: where exchanges send and take USDC. */
+const UNISWAP_POOL = "0x46880b404CD35c165EDdefF7421019F8dD25F4Ad";
 
 // ---------------------------------------------------------------- bitcoin
 
@@ -68,7 +71,7 @@ async function btcActivity(profile: WalletProfile, contacts: Contact[]): Promise
   return [...byId.values()].map((tx) => describeBtc(tx, profile, contacts));
 }
 
-// ---------------------------------------------------------------- digital dollars
+// ---------------------------------------------------------------- USDC
 
 interface TokenTransfer {
   transaction_hash: string;
@@ -100,11 +103,14 @@ async function usdcActivity(profile: WalletProfile, contacts: Contact[]): Promis
 
     const to = paid[0] && contacts.find((c) => same(c.ethAddress, paid[0].to.hash));
     const from = incoming[0]?.from.hash;
-    const label = paid.length
+    const exchanged = transfers.some((t) => same(t.from.hash, UNISWAP_POOL) || same(t.to.hash, UNISWAP_POOL));
+    const label = exchanged
+      ? "Exchanged on Uniswap"
+      : paid.length
       ? `To ${to?.name ?? "someone outside your contacts"}`
       : same(from, DEPLOYMENTS.swissquote)
         ? "From your Swissquote account"
-        : "Received in your digital dollars";
+        : "Received in your USDC";
     return {
       id: hash,
       asset: "USDC" as const,
@@ -122,7 +128,7 @@ async function usdcActivity(profile: WalletProfile, contacts: Contact[]): Promis
 export async function loadActivity(profile: WalletProfile): Promise<{ items: ActivityItem[]; unavailable: string[] }> {
   const { contacts } = await loadRulebook(profile.walletId);
   const [btc, usdc] = await Promise.allSettled([btcActivity(profile, contacts), usdcActivity(profile, contacts)]);
-  const unavailable = [btc.status === "rejected" && "Bitcoin", usdc.status === "rejected" && "digital dollar"].filter(Boolean) as string[];
+  const unavailable = [btc.status === "rejected" && "Bitcoin", usdc.status === "rejected" && "USDC"].filter(Boolean) as string[];
   const items = [...(btc.status === "fulfilled" ? btc.value : []), ...(usdc.status === "fulfilled" ? usdc.value : [])];
   return {
     items: items.sort((a, b) => Number(a.confirmed) - Number(b.confirmed) || (b.time?.getTime() ?? 0) - (a.time?.getTime() ?? 0)),

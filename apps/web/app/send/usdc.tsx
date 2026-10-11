@@ -12,7 +12,7 @@ import type { WalletProfile } from "../../lib/profile";
 import { usePrice } from "../../lib/use-price";
 import { OperationFailedError, loadUsdcBalance, prepareUsdcPayment, sendUsdcPayment, type UsdcPayment } from "../../lib/wallet-usdc";
 
-/** Digital dollar payments (USDC on Base): amount, confirmation card, and the result. */
+/** USDC payments (USDC on Base): amount, confirmation card, and the result. */
 export function UsdcSend({ profile, contact, onBack }: { profile: WalletProfile; contact: Contact; onBack: () => void }) {
   const [payment, setPayment] = useState<UsdcPayment>();
   const [sent, setSent] = useState<EthSent>();
@@ -94,12 +94,12 @@ function UsdcAmount({
           placeholder="0.00"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          aria-label={`Amount in Swiss francs for ${contact.name}, paid in digital dollars`}
+          aria-label={`Amount in Swiss francs for ${contact.name}, paid in USDC`}
         />
       </label>
       {valid && <p className="small muted tabular">About {formatUsdc(usdcForChf(chf, price.usdcChf))}</p>}
       <dl className="slip-details" style={{ padding: 0, border: 0 }}>
-        <dt>Digital dollars</dt>
+        <dt>USDC</dt>
         <dd>{chfOf(balance)}</dd>
         <dt>Face ID alone, today</dt>
         <dd>{chfOf(today)}</dd>
@@ -132,7 +132,7 @@ function UsdcSlip({ payment }: { payment: UsdcPayment }) {
           {contact.relation && ` (${contact.relation})`}
         </dd>
         <dt>From</dt>
-        <dd>Digital dollars</dd>
+        <dd>USDC</dd>
         <dt>Network fee</dt>
         <dd>
           {fee.paidBy === "swissquote"

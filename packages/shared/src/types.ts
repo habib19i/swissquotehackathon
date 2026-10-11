@@ -30,6 +30,10 @@ export interface Rulebook {
   /** Target Spending pocket size in CHF (Bitcoin side). Default 100. */
   pocketSizeChf: number;
   frozen: boolean;
+  /** DeFi apps (ids from apps.ts) the passkey may use without Swissquote's co-signature. */
+  apps?: string[];
+  /** The apps' own daily limit in CHF (USDC leaving the safe through apps). Default 500. */
+  appLimitChf?: number;
 }
 
 export type RulebookChange =
@@ -38,7 +42,9 @@ export type RulebookChange =
   | { kind: "setDailyLimit"; dailyLimitChf: number }
   | { kind: "setPocketSize"; pocketSizeChf: number }
   | { kind: "freeze" }
-  | { kind: "unfreeze" };
+  | { kind: "unfreeze" }
+  | { kind: "addApp"; appId: string }
+  | { kind: "removeApp"; appId: string };
 
 export type ChangeDirection = "loosening" | "tightening";
 

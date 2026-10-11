@@ -11,6 +11,7 @@ import { cosigner } from "../../lib/cosigner";
 import { formatSatsAsChf } from "../../lib/format";
 import type { WalletProfile } from "../../lib/profile";
 import { usePrice } from "../../lib/use-price";
+import { PAPERS, loadPaper, loadTheme, saveAppearance, type Paper, type Theme } from "../../lib/appearance";
 
 export default function SettingsPage() {
   return <RequireWallet>{(profile) => <Settings profile={profile} />}</RequireWallet>;
@@ -24,6 +25,19 @@ function Settings({ profile }: { profile: WalletProfile }) {
   const [plan, setPlan] = useState<Plan>();
   const [account, setAccount] = useState<DemoAccount>();
   const [message, setMessage] = useState<string>();
+  const [theme, setTheme] = useState<Theme>("system");
+  const [paper, setPaper] = useState<Paper>("swissquote");
+
+  useEffect(() => {
+    setTheme(loadTheme());
+    setPaper(loadPaper());
+  }, []);
+
+  function chooseAppearance(nextTheme: Theme, nextPaper: Paper) {
+    setTheme(nextTheme);
+    setPaper(nextPaper);
+    saveAppearance(nextTheme, nextPaper);
+  }
 
   useEffect(() => {
     cosigner
@@ -50,8 +64,8 @@ function Settings({ profile }: { profile: WalletProfile }) {
       await cosigner.setPlan(profile.walletId, next);
       setMessage(
         next === "premium"
-          ? "Premium: Swissquote now pays your network fees, in bitcoin and in digital dollars."
-          : "Standard: you now pay the network fee of each payment (in digital dollars: a small USDC fee to Swissquote, never ETH).",
+          ? "Premium: Swissquote now pays your network fees, in bitcoin and in USDC."
+          : "Standard: you now pay the network fee of each payment (in USDC: a small USDC fee to Swissquote, never ETH).",
       );
     } catch (err) {
       setMessage((err as Error).message);
@@ -63,6 +77,24 @@ function Settings({ profile }: { profile: WalletProfile }) {
       <h1>Your plan</h1>
       {plan && <PlanChoice value={plan} onChange={choose} />}
       {message && <p className="notice" role="status">{message}</p>}
+
+      <h2>Appearance</h2>
+      <div className="segmented three" role="group" aria-label="Light or dark">
+        {(["light", "dark", "system"] as const).map((t) => (
+          <button key={t} aria-pressed={theme === t} onClick={() => chooseAppearance(t, paper)}>
+            {t === "light" ? "Light" : t === "dark" ? "Dark" : "Like my phone"}
+          </button>
+        ))}
+      </div>
+      <p className="small muted">Background colour</p>
+      <div className="swatches" role="group" aria-label="Background colour">
+        {(Object.keys(PAPERS) as Paper[]).map((p) => (
+          <button key={p} className="swatch" aria-pressed={paper === p} onClick={() => chooseAppearance(theme, p)}>
+            <span className="swatch-dot" style={{ background: PAPERS[p][theme === "dark" ? "dark" : "light"] }} aria-hidden="true" />
+            {PAPERS[p].label}
+          </button>
+        ))}
+      </div>
 
       {account && (
         <section className="notice">
@@ -92,7 +124,7 @@ function Settings({ profile }: { profile: WalletProfile }) {
             Swissquote on Base <Mock />
           </p>
           <p className="small muted">
-            Relays digital dollar payments to the network (bundler), pays their gas from its deposit (paymaster), and
+            Relays USDC payments to the network (bundler), pays their gas from its deposit (paymaster), and
             plays your Swissquote account for USDC transfers.
           </p>
           <dl className="slip-details" style={{ padding: 0, border: 0 }}>

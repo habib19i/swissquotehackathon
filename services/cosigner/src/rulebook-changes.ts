@@ -7,6 +7,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import {
   LOOSENING_DELAY_SECONDS,
+  appById,
   applyChange,
   classifyChange,
   type ChangeDirection,
@@ -34,6 +35,10 @@ export function describeChange(change: RulebookChange, rulebook: Rulebook): stri
       return "freeze your safe";
     case "unfreeze":
       return "unfreeze your safe";
+    case "addApp":
+      return `let you use ${appById(change.appId)?.name ?? "an app"} with Face ID alone`;
+    case "removeApp":
+      return `stop ${appById(change.appId)?.name ?? "an app"} from being used with Face ID alone`;
   }
 }
 
@@ -95,6 +100,16 @@ export function rulebookChanges(db: DatabaseSync, { setRulebook, alerts }: Ruleb
         }
         case "removeContact":
           if (!rulebook.contacts.some((c) => c.id === change.contactId)) throw new PolicyError("This contact does not exist.");
+          return;
+        case "addApp": {
+          // Only apps Swissquote has vetted and that run in the wallet (scam shield for apps).
+          const app = appById(change.appId);
+          if (!app?.live) throw new PolicyError("Swissquote has not approved this app for the wallet.");
+          if ((rulebook.apps ?? []).includes(app.id)) throw new PolicyError(`${app.name} is already one of your approved apps.`);
+          return;
+        }
+        case "removeApp":
+          if (!(rulebook.apps ?? []).includes(change.appId)) throw new PolicyError("This app is not one of your approved apps.");
           return;
         case "setDailyLimit":
         case "setPocketSize": {

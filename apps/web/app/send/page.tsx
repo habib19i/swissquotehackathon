@@ -21,6 +21,7 @@ import {
 import { loadUsdcBalance } from "../../lib/wallet-usdc";
 import { BitcoinConfirm, BitcoinSent } from "./bitcoin";
 import { UsdcSend } from "./usdc";
+import { BtcToken, UsdcToken } from "../../components/tokens";
 
 export default function SendPage() {
   return <RequireWallet>{(profile) => <Send profile={profile} />}</RequireWallet>;
@@ -28,7 +29,7 @@ export default function SendPage() {
 
 type Step =
   | { name: "contact" }
-  /** The contact can receive bitcoin and digital dollars: the client chooses. */
+  /** The contact can receive bitcoin and USDC: the client chooses. */
   | { name: "asset"; contact: Contact }
   | { name: "usdc"; contact: Contact }
   | { name: "amount"; contact: Contact }
@@ -89,7 +90,7 @@ function ContactStep({ profile, onPick }: { profile: WalletProfile; onPick: (con
   }, [profile]);
 
   return (
-    <Screen back={{ href: "/" }}>
+    <Screen tabs>
       <h1>Who do you want to pay?</h1>
       <ul className="rows">
         {contacts?.length === 0 && <li className="row muted">You have no contacts yet.</li>}
@@ -116,7 +117,7 @@ function ContactStep({ profile, onPick }: { profile: WalletProfile; onPick: (con
   );
 }
 
-/** Bitcoin or digital dollars, with what each can pay. */
+/** Bitcoin or USDC, with what each can pay. */
 function AssetStep({
   profile,
   contact,
@@ -154,6 +155,7 @@ function AssetStep({
       <ul className="rows">
         <li>
           <button className="row" onClick={() => onPick("BTC")}>
+            <BtcToken size={40} />
             <span className="row-main">
               <span className="row-title">Bitcoin</span>
               <br />
@@ -164,8 +166,9 @@ function AssetStep({
         </li>
         <li>
           <button className="row" onClick={() => onPick("USDC")} disabled={typeof usdc === "string"}>
+            <UsdcToken size={40} />
             <span className="row-main">
-              <span className="row-title">Digital dollars</span>
+              <span className="row-title">USDC</span>
               <br />
               <span className="small muted">{typeof usdc === "string" ? usdc : "USDC, arrives within seconds"}</span>
             </span>

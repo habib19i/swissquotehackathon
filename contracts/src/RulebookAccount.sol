@@ -9,16 +9,20 @@ import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Execution} from "@openzeppelin/contracts/account/utils/draft-ERC7579Utils.sol";
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import {WebAuthn} from "@openzeppelin/contracts/utils/cryptography/WebAuthn.sol";
+import {IAppAdapter} from "./apps/IAppAdapter.sol";
 
 /**
  * @title RulebookAccount
  * @notice The client's USDC safe on Base (CLAUDE.md sections 6 and 7). An ERC-4337 account with two keys:
  *
  * - the WALLET PASSKEY (Face ID, P-256 via WebAuthn) may only call {payContact}: pay an approved contact
- *   (Merkle proof against `contactsRoot`), within the daily limit, unless the safe is frozen;
+ *   (Merkle proof against `contactsRoot`), within the daily limit, unless the safe is frozen; and {useApp}:
+ *   use a DeFi app the client approved, through its Swissquote-vetted adapter, within the apps' own limit;
  * - the 2-of-3 MPC key (secp256k1) may do anything: change the rulebook, run any call batch, replace the
  *   passkey after a recovery. Swissquote alone holds one share of it and can never sign alone.
  *
@@ -54,14 +58,27 @@ contract RulebookAccount is Account, ERC7821, IERC1271, Initializable {
     uint256 public windowStart;
     uint256 public spentInWindow;
 
+    /// @notice DeFi apps (their adapters) the passkey may use without Swissquote's co-signature.
+    mapping(address adapter => bool) public approvedApp;
+    /// @notice Most of the token the apps may take out of the account per 24-hour window, in token units.
+    uint256 public appDailyLimit;
+    uint256 public appWindowStart;
+    uint256 public appSpentInWindow;
+
     event RulebookSet(bytes32 contactsRoot, uint256 dailyLimit);
     event ContactRevoked(address indexed contact);
     event FrozenSet(bool frozen);
     event PasskeySet(bytes32 x, bytes32 y);
     event ContactPaid(address indexed to, uint256 amount, uint256 fee);
+    event AppSet(address indexed adapter, bool approved);
+    event AppLimitSet(uint256 limit);
+    event AppUsed(address indexed adapter, uint256 tokenSpent);
 
     error OutsideRulebook();
     error DailyLimitExceeded(uint256 remaining);
+    error AppNotApproved();
+    error AppDailyLimitExceeded(uint256 remaining);
+    error UnsafeAppCall();
 
     constructor(IERC20 token_, address feeRecipient_) {
         token = token_;
@@ -96,6 +113,30 @@ contract RulebookAccount is Account, ERC7821, IERC1271, Initializable {
         return dailyLimit > spentInWindow ? dailyLimit - spentInWindow : 0;
     }
 
+    // ------------------------------------------------------------------ DeFi apps
+
+    /**
+     * @notice Uses an approved app: the passkey may sign this alone. The adapter plans the calls (every output
+     * goes back to this account); the token the calls take out counts towards the apps' daily limit.
+     */
+    function useApp(address adapter, bytes calldata params) external onlyEntryPointOrSelf {
+        if (frozen || !approvedApp[adapter]) revert AppNotApproved();
+        uint256 spent = _runApp(adapter, params);
+        _spendApp(spent);
+        emit AppUsed(adapter, spent);
+    }
+
+    /// @notice Uses any app with the MPC key, after Swissquote's checks; no app limit applies.
+    function useAppChecked(address adapter, bytes calldata params) external onlyEntryPointOrSelf {
+        emit AppUsed(adapter, _runApp(adapter, params));
+    }
+
+    /// @notice What the apps may still take out in the current 24-hour window.
+    function remainingAppToday() public view returns (uint256) {
+        if (block.timestamp >= appWindowStart + WINDOW) return appDailyLimit;
+        return appDailyLimit > appSpentInWindow ? appDailyLimit - appSpentInWindow : 0;
+    }
+
     // ------------------------------------------------------------------ rulebook (MPC key only)
 
     function setRulebook(bytes32 root, uint256 limit) external onlyEntryPointOrSelf {
@@ -110,6 +151,16 @@ contract RulebookAccount is Account, ERC7821, IERC1271, Initializable {
     function setFrozen(bool frozen_) external onlyEntryPointOrSelf {
         frozen = frozen_;
         emit FrozenSet(frozen_);
+    }
+
+    function setApp(address adapter, bool approved) external onlyEntryPointOrSelf {
+        approvedApp[adapter] = approved;
+        emit AppSet(adapter, approved);
+    }
+
+    function setAppLimit(uint256 limit) external onlyEntryPointOrSelf {
+        appDailyLimit = limit;
+        emit AppLimitSet(limit);
     }
 
     /// @notice After a recovery, the new phone's passkey replaces the lost one.
@@ -135,10 +186,19 @@ contract RulebookAccount is Account, ERC7821, IERC1271, Initializable {
         if (keyType == MPC_KEY) {
             return _isMpcSignature(userOpHash, signature[1:]) ? ERC4337Utils.SIG_VALIDATION_SUCCESS : ERC4337Utils.SIG_VALIDATION_FAILED;
         }
-        if (keyType == PASSKEY && _isPasskeySignature(userOpHash, signature[1:]) && _isDailyPayment(userOp.callData)) {
+        if (keyType == PASSKEY && _isPasskeySignature(userOpHash, signature[1:]) && _isPasskeyCall(userOp.callData)) {
             return ERC4337Utils.SIG_VALIDATION_SUCCESS;
         }
         return ERC4337Utils.SIG_VALIDATION_FAILED;
+    }
+
+    /// @dev What the passkey may sign alone: a daily payment, or the use of an approved app.
+    function _isPasskeyCall(bytes calldata callData) internal view returns (bool) {
+        if (callData.length >= 4 && bytes4(callData[:4]) == this.useApp.selector) {
+            (address adapter, ) = abi.decode(callData[4:], (address, bytes));
+            return !frozen && approvedApp[adapter];
+        }
+        return _isDailyPayment(callData);
     }
 
     function _isDailyPayment(bytes calldata callData) internal view returns (bool) {
@@ -178,6 +238,29 @@ contract RulebookAccount is Account, ERC7821, IERC1271, Initializable {
     }
 
     // ------------------------------------------------------------------ internals
+
+    /// @dev Runs the adapter's planned calls and returns how much of the token left the account.
+    function _runApp(address adapter, bytes calldata params) internal returns (uint256 spent) {
+        Execution[] memory calls = IAppAdapter(adapter).plan(address(this), params);
+        uint256 before = token.balanceOf(address(this));
+        for (uint256 i = 0; i < calls.length; i++) {
+            // An adapter can never call the account itself (its rules, its keys) or move ETH.
+            if (calls[i].target == address(this) || calls[i].value != 0) revert UnsafeAppCall();
+            Address.functionCall(calls[i].target, calls[i].callData);
+        }
+        uint256 afterwards = token.balanceOf(address(this));
+        return before > afterwards ? before - afterwards : 0;
+    }
+
+    function _spendApp(uint256 amount) internal {
+        if (block.timestamp >= appWindowStart + WINDOW) {
+            appWindowStart = block.timestamp;
+            appSpentInWindow = 0;
+        }
+        uint256 remaining = remainingAppToday();
+        if (amount > remaining) revert AppDailyLimitExceeded(remaining);
+        appSpentInWindow += amount;
+    }
 
     function _spend(uint256 amount) internal {
         if (block.timestamp >= windowStart + WINDOW) {

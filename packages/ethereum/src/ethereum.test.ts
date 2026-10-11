@@ -8,6 +8,7 @@ import { DEMO_CONTACTS, contactProof, defaultRulebook } from "@sqw/shared";
 import { passkeyFromSpki } from "./account";
 import { batchCall, decodeActions, payContactCall, selfCall, usdcTransfer, UnsupportedCallError } from "./calls";
 import { USDC } from "./config";
+import { DEPLOYMENTS } from "./deployments";
 import { ethOwnershipMessage, ethOwnershipProof } from "./ownership";
 import { limitMatches, rulesTarget, syncActions } from "./rules";
 import { mpcSignature, passkeySignature } from "./signatures";
@@ -132,7 +133,7 @@ test("USDC amounts: CHF limits convert at the day's rate, rounded down to the ce
 test("on-chain rules are updated only when they really differ", () => {
   const rulebook = { ...defaultRulebook(), contacts: DEMO_CONTACTS };
   const target = rulesTarget(rulebook, 0.8);
-  const onChain = { deployed: true, ...target, passkeyX: "0x" as Hex, passkeyY: "0x" as Hex, remainingToday: 0n };
+  const onChain = { deployed: true, ...target, passkeyX: "0x" as Hex, passkeyY: "0x" as Hex, remainingToday: 0n, appDailyLimit: 0n, remainingAppToday: 0n };
 
   assert.deepEqual(syncActions(onChain, target), []);
   assert.ok(limitMatches(target.dailyLimit, rulesTarget(rulebook, 0.81).dailyLimit), "1% rate drift is no change");
@@ -150,10 +151,10 @@ test("on-chain rules are updated only when they really differ", () => {
 test("ownership proof: the message names client and account; before deployment it carries the deployment (ERC-6492)", () => {
   const message = ethOwnershipMessage("CH-4417-2093", ACCOUNT, "2026-10-10T12:00:00.000Z");
   assert.match(message, /Client: CH-4417-2093/);
-  assert.ok(message.includes(`Digital dollar account (Base): ${ACCOUNT}`));
+  assert.ok(message.includes(`USDC account (Base): ${ACCOUNT}`));
 
   const signature = mpcSignature({ r: `0x${"11".repeat(32)}`, s: `0x${"22".repeat(32)}`, yParity: 0 });
-  const settings = { mpcSigner: ACCOUNT, passkeyX: `0x${"01".repeat(32)}` as Hex, passkeyY: `0x${"02".repeat(32)}` as Hex, contactsRoot: `0x${"03".repeat(32)}` as Hex, dailyLimit: 1n };
+  const settings = { factory: DEPLOYMENTS.factory, mpcSigner: ACCOUNT, passkeyX: `0x${"01".repeat(32)}` as Hex, passkeyY: `0x${"02".repeat(32)}` as Hex, contactsRoot: `0x${"03".repeat(32)}` as Hex, dailyLimit: 1n };
   assert.equal(ethOwnershipProof(signature, true, settings), signature);
   const wrapped = ethOwnershipProof(signature, false, settings);
   assert.ok(wrapped.endsWith("6492".repeat(16)), "ERC-6492 magic suffix");

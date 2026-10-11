@@ -1,6 +1,6 @@
 /**
  * Ownership proof (CLAUDE.md section 8, step 5): the Savings safe signs a BIP-322 message binding it to
- * the client's Swissquote identity, and the digital dollar account an ERC-1271 one. Swissquote verifies
+ * the client's Swissquote identity, and the USDC account an ERC-1271 one. Swissquote verifies
  * them and marks the safe "verified": no whitelist, no screenshots (Travel Rule).
  */
 import { hexToBytes } from "@noble/hashes/utils.js";
@@ -44,7 +44,7 @@ export async function proveOwnership(profile: WalletProfile, share: DklsKeyshare
 }
 
 /**
- * The digital dollar account's proof: the MPC key signs the message, and Swissquote asks the account
+ * The USDC account's proof: the MPC key signs the message, and Swissquote asks the account
  * itself (ERC-1271), or, before its first operation, its future deployment (ERC-6492).
  */
 export async function proveUsdcOwnership(profile: WalletProfile, share: DklsKeyshare): Promise<EthAccountRecord> {

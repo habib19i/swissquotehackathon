@@ -14,6 +14,11 @@ const nextConfig: NextConfig = {
   // The workspace packages ship TypeScript source.
   transpilePackages: ["@sqw/shared", "@sqw/mpc", "@sqw/bitcoin", "@sqw/ethereum"],
 
+  // Values from the root .env that the browser needs (a WalletConnect project ID is public by design).
+  env: {
+    NEXT_PUBLIC_REOWN_PROJECT_ID: process.env.NEXT_PUBLIC_REOWN_PROJECT_ID ?? "",
+  },
+
   // The phone reaches both key-share holders through this origin, so the app works over https on a
   // real phone without CORS or mixed content. The proxy only forwards; shares stay in each service.
   async rewrites() {

@@ -56,10 +56,10 @@ test("a bitcoin amount needs its unit: '20 ... in bitcoin' is CHF 20 paid in bit
   assert.deepEqual([btc.currency, btc.asset], ["BTC", "BTC"]);
 });
 
-test("French: asks bitcoin or digital dollars, then pays in bitcoin", () => {
+test("French: asks bitcoin or USDC, then pays in bitcoin", () => {
   const said = ["Envoie 20 francs à Léo"];
   const first = resolveDraft(draft({ recipient: "Léo", amount: 20, currency: "CHF" }), said, contacts, "fr");
-  assert.equal(question(first), "Dois-je l’envoyer à Léo en bitcoins ou en dollars numériques ?");
+  assert.equal(question(first), "Dois-je l’envoyer à Léo en bitcoins ou en USDC ?");
   const answer = "en bitcoin";
   const done = ready(resolveDraft(mergeAnswer((first as Extract<Resolution, { kind: "ask" }>).draft, answer, contacts), [...said, answer], contacts, "fr"));
   assert.deepEqual([done.contact.id, done.amount, done.currency, done.asset], ["leo", 20, "CHF", "BTC"]);
@@ -80,7 +80,7 @@ test("an unknown name is not guessed", () => {
   assert.equal(question(r), "You have no contact called “Marc”. Your contacts: Léo, Adam or Sofia. Who do you mean?");
 });
 
-test("a contact without a digital dollar address cannot be paid in USDC", () => {
+test("a contact without a USDC address cannot be paid in USDC", () => {
   const onlyBitcoin: Contact[] = [{ id: "marc", name: "Marc", btcAddress: "tb1qppv822ua5jp0nxmkz445a63rkd0gn4s0m4mldf" }];
   const r = resolveDraft(draft({ recipient: "Marc", amount: 5, currency: "USDC" }), ["Send 5 USDC to Marc"], onlyBitcoin, "en");
   assert.equal(r.kind, "refuse");
@@ -92,12 +92,15 @@ test("'from my savings' pays bitcoin from the Savings safe", () => {
 });
 
 test("the model's JSON is checked field by field", () => {
-  assert.deepEqual(sanitizeDraft({ recipient: " Léo ", amount: "12,5", currency: "EUR", asset: "ETH", pocket: "savings" }), {
+  assert.deepEqual(sanitizeDraft({ intent: "drain", recipient: " Léo ", amount: "12,5", currency: "EUR", asset: "ETH", pocket: "savings", from: "BTC" }), {
+    intent: "pay",
     recipient: "Léo",
     amount: 12.5,
     currency: null,
     asset: null,
     pocket: "savings",
+    app: null,
+    from: null,
   });
   assert.equal(sanitizeDraft({ amount: -3 }).amount, null);
   assert.deepEqual(sanitizeDraft("not an object"), EMPTY_DRAFT);
@@ -105,4 +108,67 @@ test("the model's JSON is checked field by field", () => {
 
 test("amounts as the client writes them", () => {
   assert.deepEqual(numbersIn("1'000.50 and 12,50 and 0.001 BTC"), [1000.5, 12.5, 0.001]);
+});
+
+// ---------------------------------------------------------------- exchanges, Aave, apps, new contacts
+
+const kind = <K extends Resolution["kind"]>(r: Resolution, k: K) => {
+  assert.equal(r.kind, k, JSON.stringify(r));
+  return r as Extract<Resolution, { kind: K }>;
+};
+
+test("'Exchange 5 USDC for ETH' is a Uniswap exchange giving 5 USDC", () => {
+  const r = kind(resolveDraft(draft({ intent: "swap", amount: 5, currency: "USDC", from: "USDC" }), ["Exchange 5 USDC for ETH"], contacts, "en"), "swap");
+  assert.deepEqual([r.from, r.amount, r.currency], ["USDC", 5, "USDC"]);
+  const back = kind(resolveDraft(draft({ intent: "swap", amount: 0.001 }), ["Swap 0.001 ETH to USDC"], contacts, "en"), "swap");
+  assert.deepEqual([back.from, back.currency], ["ETH", "ETH"]);
+});
+
+test("'Buy 0.001 ETH' asks how much USDC to give, never swaps ETH the wrong way", () => {
+  const r = resolveDraft(draft({ intent: "swap", amount: 0.001, currency: "ETH", from: "USDC" }), ["Buy 0.001 ETH with my USDC"], contacts, "en");
+  assert.equal(question(r), "How much USDC should I exchange?");
+});
+
+test("an exchange without a direction asks for it; the answer completes it", () => {
+  const dollars = kind(resolveDraft(draft({ intent: "swap", amount: 3 }), ["Use Uniswap for 3 dollars"], contacts, "en"), "swap");
+  assert.equal(dollars.from, "USDC");
+  const none = resolveDraft(draft({ intent: "swap", amount: 3 }), ["Exchange 3 on Uniswap"], contacts, "en");
+  assert.equal(question(none), "Should I exchange USDC for ETH, or ETH for USDC?");
+  const answer = "ETH for USDC";
+  const done = kind(resolveDraft(mergeAnswer((none as Extract<Resolution, { kind: "ask" }>).draft, answer, contacts), ["Exchange 3 on Uniswap", answer], contacts, "en"), "swap");
+  assert.deepEqual([done.from, done.amount], ["ETH", 3]);
+});
+
+test("Uniswap here is USDC and ETH only, and payments are never in ETH", () => {
+  assert.equal(resolveDraft(draft({ intent: "swap", amount: 0.001 }), ["Swap 0.001 BTC for ETH"], contacts, "en").kind, "refuse");
+  assert.equal(resolveDraft(draft({ recipient: "Léo", amount: 0.01 }), ["Send 0.01 ETH to Léo"], contacts, "en").kind, "refuse");
+});
+
+test("Aave: 'all my ETH' deposits everything; an amount needs its unit", () => {
+  const all = kind(resolveDraft(draft({ intent: "earn" }), ["Put all my ETH in Aave"], contacts, "en"), "earn");
+  assert.deepEqual([all.action, all.amount], ["supply", "all"]);
+  const out = kind(resolveDraft(draft({ intent: "withdraw", amount: 0.002 }), ["Take 0.002 ETH out of Aave"], contacts, "en"), "earn");
+  assert.deepEqual([out.action, out.amount, out.currency], ["withdraw", 0.002, "ETH"]);
+  assert.equal(question(resolveDraft(draft({ intent: "earn", amount: 20 }), ["Deposit 20 in Aave"], contacts, "en")), "Is that amount in ETH or in francs?");
+  assert.equal(resolveDraft(draft({ intent: "earn", amount: 5 }), ["Earn interest on 5 USDC with Aave"], contacts, "en").kind, "refuse");
+});
+
+test("trusting an app: only one the client named, and only a live one", () => {
+  const r = kind(resolveDraft(draft({ intent: "trustApp", app: "Uniswap" }), ["I trust Uniswap, approve it"], contacts, "en"), "trustApp");
+  assert.equal(r.appId, "uniswap");
+  assert.equal(question(resolveDraft(draft({ intent: "trustApp", app: "Aave" }), ["Approve this protocol"], contacts, "en")), "Which app do you want to approve: Uniswap or Aave?");
+  assert.equal(resolveDraft(draft({ intent: "trustApp", app: "Lido" }), ["Trust Lido"], contacts, "fr").kind, "refuse");
+});
+
+test("adding a contact: the name the client said, never an address from the chat", () => {
+  const r = kind(resolveDraft(draft({ intent: "addContact", recipient: "Marc" }), ["Add my neighbour Marc as a contact"], contacts, "en"), "addContact");
+  assert.equal(r.name, "Marc");
+  const withAddress = kind(
+    resolveDraft(draft({ intent: "addContact", recipient: "Marc" }), ["Add Marc, his address is 0xE2a0455E058a23E152C18f56103c99522554867f"], contacts, "en"),
+    "addContact",
+  );
+  assert.match(withAddress.message, /never take an address/);
+  assert.equal(question(resolveDraft(draft({ intent: "addContact", recipient: "0xE2a0455E058a23E152C18f56103c99522554867f" }), ["Add 0xE2a0455E058a23E152C18f56103c99522554867f"], contacts, "en")), "What is the name of the person you want to add?");
+  assert.equal(question(resolveDraft(draft({ intent: "addContact", recipient: "Paul" }), ["Add a new contact"], contacts, "en")), "What is the name of the person you want to add?");
+  assert.equal(resolveDraft(draft({ intent: "addContact", recipient: "Léo" }), ["Add Léo"], contacts, "en").kind, "refuse");
 });

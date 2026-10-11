@@ -1,6 +1,8 @@
 /**
  * Deploys the Base Sepolia contracts from Swissquote's operational wallet (its key never leaves this
- * process) and writes their addresses to @sqw/ethereum. Then fund the paymaster's gas deposit.
+ * process) and writes their addresses to @sqw/ethereum: the account implementation and its factory, the
+ * vetted DeFi app adapters, and the paymaster if none is live yet. The previous factory is kept as a
+ * legacy one, so safes created before keep working. Then fund the paymaster's gas deposit if needed.
  *
  * Usage: pnpm --filter @sqw/contracts build && pnpm --filter @sqw/cosigner deploy:base
  *        pnpm --filter @sqw/cosigner fund:paymaster
@@ -8,7 +10,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createWalletClient, formatEther, getAddress, http, type Abi, type Address, type Hex } from "viem";
-import { ENTRY_POINT, USDC, baseClient, chain } from "@sqw/ethereum";
+import { DEPLOYMENTS, ENTRY_POINT, PROTOCOLS, USDC, baseClient, chain } from "@sqw/ethereum";
 import { explorer } from "@sqw/shared";
 import { net } from "../src/cosign-policy";
 import { db } from "../src/db";
@@ -37,12 +39,18 @@ async function deploy(name: string, args: unknown[]): Promise<Address> {
   return address;
 }
 
+const isLive = async (address: Address) => /^0x0+$/.test(address) === false && Boolean(await client.getCode({ address }));
+
 console.log(`Deploying from Swissquote's wallet ${account.address} (${formatEther(await client.getBalance(account))} ETH)`);
 
 const implementation = await deploy("RulebookAccount", [USDC.address, account.address]);
 const factory = await deploy("RulebookAccountFactory", [implementation]);
-const paymaster = await deploy("SwissquotePaymaster", [ENTRY_POINT, account.address]);
+const uniswapAdapter = await deploy("UniswapAdapter", [PROTOCOLS.uniswap.router, USDC.address, PROTOCOLS.weth, PROTOCOLS.uniswap.fee]);
+const aaveAdapter = await deploy("AaveAdapter", [PROTOCOLS.aave.pool, PROTOCOLS.weth]);
+const paymaster = (await isLive(DEPLOYMENTS.paymaster)) ? DEPLOYMENTS.paymaster : await deploy("SwissquotePaymaster", [ENTRY_POINT, account.address]);
+const legacyFactories = [...DEPLOYMENTS.legacyFactories, ...((await isLive(DEPLOYMENTS.factory)) ? [DEPLOYMENTS.factory] : [])];
 
+const list = (addresses: readonly string[]) => `[${addresses.map((a) => `"${a}"`).join(", ")}]`;
 writeFileSync(
   root("packages/ethereum/src/deployments.ts"),
   `/**
@@ -52,10 +60,17 @@ export const DEPLOYMENTS = {
   chainId: ${chain.id},
   accountImplementation: "${implementation}",
   factory: "${factory}",
+  /** Factories of earlier account versions: safes created with them keep working, without apps. */
+  legacyFactories: ${list(legacyFactories)} as \`0x\${string}\`[],
   paymaster: "${paymaster}",
   /** Swissquote: paymaster signer and recipient of Standard-plan USDC fees. */
   swissquote: "${account.address}",
+  /** Swissquote-vetted DeFi app adapters. */
+  adapters: {
+    uniswap: "${uniswapAdapter}",
+    aave: "${aaveAdapter}",
+  },
 } as const;
 `,
 );
-console.log("Addresses written to packages/ethereum/src/deployments.ts. Next: pnpm --filter @sqw/cosigner fund:paymaster");
+console.log("Addresses written to packages/ethereum/src/deployments.ts. If the paymaster is new: pnpm --filter @sqw/cosigner fund:paymaster");
