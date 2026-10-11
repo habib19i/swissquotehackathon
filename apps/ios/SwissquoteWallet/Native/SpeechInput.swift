@@ -38,22 +38,15 @@ final class SpeechInput {
             if recognizer.supportsOnDeviceRecognition { request.requiresOnDeviceRecognition = true }
             self.request = request
 
-            let input = audio.inputNode
-            input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0)) { buffer, _ in
-                request.append(buffer)
-            }
+            SpeechCallbacks.feed(audio.inputNode, into: request)
             audio.prepare()
             try audio.start()
             listening = true
 
-            task = recognizer.recognitionTask(with: request) { [weak self] result, failure in
-                let heard = result?.bestTranscription.formattedString
-                let final = result?.isFinal == true || failure != nil
-                Task { @MainActor in
-                    guard let self else { return }
-                    if let heard { self.text = heard }
-                    if final { self.stop() }
-                }
+            task = SpeechCallbacks.recognize(request, with: recognizer) { [weak self] heard, final in
+                guard let self else { return }
+                if let heard { text = heard }
+                if final { stop() }
             }
         } catch {
             self.error = "Voice could not start: \(error.localizedDescription)"
@@ -74,10 +67,36 @@ final class SpeechInput {
     }
 
     private static func authorized() async -> Bool {
-        let speech = await withCheckedContinuation { continuation in
+        guard await SpeechCallbacks.speechAuthorized() else { return false }
+        return await AVAudioApplication.requestRecordPermission()
+    }
+}
+
+/// The speech and audio APIs call back on their own threads (the permission answer, the microphone's
+/// audio thread, the recognizer's queue). Their closures are made here, outside the main actor, so Swift's
+/// runtime isolation check does not stop the app; results go back to the main actor explicitly.
+nonisolated enum SpeechCallbacks {
+    static func speechAuthorized() async -> Bool {
+        await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0 == .authorized) }
         }
-        guard speech else { return false }
-        return await AVAudioApplication.requestRecordPermission()
+    }
+
+    /// Sends the microphone's audio to the recognizer, from the audio thread.
+    static func feed(_ input: AVAudioInputNode, into request: SFSpeechAudioBufferRecognitionRequest) {
+        nonisolated(unsafe) let request = request
+        input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0)) { buffer, _ in
+            request.append(buffer)
+        }
+    }
+
+    /// What was heard so far, and whether it is final, delivered on the main actor.
+    static func recognize(_ request: SFSpeechAudioBufferRecognitionRequest, with recognizer: SFSpeechRecognizer,
+                          onResult: @escaping @MainActor (String?, Bool) -> Void) -> SFSpeechRecognitionTask {
+        recognizer.recognitionTask(with: request) { result, failure in
+            let heard = result?.bestTranscription.formattedString
+            let final = result?.isFinal == true || failure != nil
+            Task { @MainActor in onResult(heard, final) }
+        }
     }
 }
