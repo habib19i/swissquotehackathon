@@ -19,3 +19,7 @@ apps/web/public/wasm/
 
 # iOS wallet core build (pnpm --filter @sqw/ios-core build)
 apps/ios-core/dist/
+
+# iOS app build output (xcodebuild -derivedDataPath build/DerivedData)
+apps/ios/build/
+xcuserdata/

@@ -1,6 +1,6 @@
 # Native iOS app: plan
 
-Status: **agreed, in progress. Step 1 (wallet core) done and tested; next: step 2 on the team Mac.** This file
+Status: **agreed, in progress. Steps 1 (wallet core) and 2 (Xcode project and bridge) done and tested; next: step 3.** This file
 is the handoff for building the iOS app on the team Mac. It records the decisions taken on 2026-10-11 and how
 each part of the web app maps to the native app.
 
@@ -142,18 +142,47 @@ The methods are listed in [`apps/ios-core/src/api.ts`](../apps/ios-core/src/api.
    USDC 0.10 payment to Léo signed by Face ID alone, in the Secure Enclave's format, was accepted on Base
    ([`0x609f126b…`](https://sepolia.basescan.org/tx/0x609f126b91d427591770e5bc3f214c13d218ba87896af70ee0658535c07587c4)).
    The recovery-key page is in place (`/native/recovery-key`).
-2. **Xcode project** (Mac): app shell, theme, `WalletCore` bridge, scheme handler, Face ID key, Keychain vault.
-   Check: core loads, DKLs keygen runs in the Simulator against the local services.
+2. **Xcode project: done.** `apps/ios/SwissquoteWallet.xcodeproj` (folder-synchronized: new Swift files under
+   `apps/ios/SwissquoteWallet/` are picked up without editing the project). A build phase copies
+   `apps/ios-core/dist` into the bundle as `core/`. Check, passed on 2026-10-11 in the iOS 27 Simulator (iPhone 17,
+   Xcode 27.0) against `pnpm dev`: core loaded in a secure context (50 methods), Face ID created the Secure Enclave
+   key, 2-of-3 MPC key generated in 1.1 s, Swissquote verified the ownership proof with the vault opened by Face ID,
+   balances and rules read, "Lose this phone" forgot everything. Run it again:
+
+   ```sh
+   pnpm dev                                   # services on the Mac
+   pnpm --filter @sqw/ios-core build          # the core, copied into the app at build time
+   cd apps/ios && xcodebuild -project SwissquoteWallet.xcodeproj -scheme SwissquoteWallet \
+     -destination 'platform=iOS Simulator,name=iPhone 17' -derivedDataPath build/DerivedData build
+   xcrun simctl install "iPhone 17" build/DerivedData/Build/Products/Debug-iphonesimulator/SwissquoteWallet.app
+   xcrun simctl launch --console-pty "iPhone 17" ch.swissquote.wallet.prototype -bridgeCheck   # prints CHECK lines
+   ```
+
+   Face ID in the Simulator: Features > Face ID > Enrolled, then Matching Face at each prompt (or
+   `xcrun simctl spawn "iPhone 17" notifyutil -p com.apple.BiometricKit_Sim.pearl.match`).
 3. **Core story**: login, onboarding, home, Bitcoin send (pocket and Savings), receive, recovery. Run Acts 1, 2
    (Bitcoin), 4 and 5 of `docs/demo-script.md` in the Simulator.
 4. USDC on Base (Face ID signature on-chain), rules, activity and alerts, attacker mode, Swissquote offline.
 5. Assistant (native speech), Explore, Uniswap and Aave, WalletConnect (reown-swift).
 6. Device run, README and demo script updates, commit.
 
-## To verify on the Mac before relying on it
+## Verified on the Mac (2026-10-11)
 
-- Xcode and iOS versions on the Mac; the reown-swift (WalletKit) version: check its releases, never guess.
-- Secure Enclave keys in the Simulator (if unavailable there, the Simulator build reports it plainly and Face ID
-  signing is tested on a device).
-- App Transport Security: `NSAllowsLocalNetworking` for the services on the Mac; the Mac's address in one setting.
-- `ASWebAuthenticationSession` with the recovery-key page in the Simulator.
+- **Tools:** macOS 26.6.2 (Apple silicon), Xcode 27.0 (27A266a), iOS 27.0 Simulator runtime. Node 24 and pnpm
+  10.18.0 (through corepack). The project targets iOS 18 and later.
+- **reown-swift (WalletKit):** latest release **2.4.0** (2026-09-14), products `ReownWalletKit` and
+  `WalletConnect`, iOS 13 and later. Pin exactly 2.4.0 when step 5 adds it (Swift Package Manager).
+- **Secure Enclave in the Simulator:** available (`SecureEnclave.isAvailable` is true, a plain key creates and
+  signs), but **a key or Keychain item bound to Face ID is refused** (`.biometryCurrentSet`, `.biometryAny` and
+  `.userPresence` all fail with LocalAuthentication -1020, "not supported on iOS Simulator"). So the Simulator
+  build uses a plain Secure Enclave key and a plain this-device-only Keychain item, and the app asks Face ID
+  (`LAContext`) before each use; the check screen says so. On a device the Secure Enclave and the Keychain
+  enforce Face ID themselves. Same signature format either way.
+- **Network:** the Simulator shares the Mac's network, so `localhost` reaches the services. `Info.plist` sets
+  `NSAllowsLocalNetworking` (plain http on the local network). The Mac's address is one build setting,
+  `SQW_SERVER_HOST` (default `localhost`), read as `AppConfig.serverHost`. The scheme handler serves the core at
+  `sqw://core/` and proxies `/svc/cosigner/`, `/svc/recovery/` and `/api/` (the core calls `/api/price` itself)
+  so the core sees one origin. mempool.space and sepolia.base.org answer CORS for the `sqw://core` origin. On a
+  device, set `SQW_SERVER_HOST` to the Mac's LAN address (the recovery key still needs an https name, see above).
+
+Still to verify: `ASWebAuthenticationSession` with the recovery-key page in the Simulator (step 3, onboarding).
