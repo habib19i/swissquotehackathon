@@ -58,16 +58,16 @@ private struct ContactStep: View {
             Text("Who do you want to pay?").titleStyle()
             if let error { Notice(.error, error) }
             if contacts?.isEmpty == true { Text("You have no contacts yet.").leadStyle() }
-            VStack(spacing: 12) {
-                ForEach(contacts ?? []) { contact in
-                    Button { onPick(contact) } label: {
-                        RowCard(title: contact.name, subtitle: contact.relation) {
-                            Avatar(text: String(contact.name.prefix(1)))
-                        } trailing: {
-                            Image(systemName: "chevron.right").foregroundStyle(Theme.inkSoft)
+            if let contacts, !contacts.isEmpty {
+                RowsGroup {
+                    ForEach(contacts) { contact in
+                        Button { onPick(contact) } label: {
+                            GroupRow(title: contact.name, subtitle: contact.relation) {
+                                Avatar(text: String(contact.name.prefix(1)))
+                            } trailing: { EmptyView() }
                         }
+                        .buttonStyle(.pressable)
                     }
-                    .buttonStyle(.plain)
                 }
             }
             if contacts == nil && error == nil { ProgressView().frame(maxWidth: .infinity) }
@@ -101,24 +101,25 @@ private struct AssetStep: View {
     var body: some View {
         Screen {
             Text("What do you want to send to \(contact.name)?").titleStyle()
-            VStack(spacing: 12) {
+            RowsGroup {
                 Button { onPick("BTC") } label: {
-                    RowCard(title: "Bitcoin", subtitle: "From your Spending pocket or Savings safe") {
+                    GroupRow(title: "Bitcoin", subtitle: "From your Spending pocket or Savings safe") {
                         TokenMark(token: .btc, size: 40)
                     } trailing: {
-                        Text(btc.map { Format.chf($0, btcChf: session.price?.btcChf) } ?? "…").monospacedDigit()
+                        Text(btc.map { Format.chf($0, btcChf: session.price?.btcChf) } ?? "…").rowTitle().monospacedDigit().fixedSize()
                     }
                 }
                 Button { onPick("USDC") } label: {
-                    RowCard(title: "USDC", subtitle: usdcSubtitle) {
+                    GroupRow(title: "USDC", subtitle: usdcSubtitle) {
                         TokenMark(token: .usdc, size: 40)
                     } trailing: {
-                        Text(usdcAmount).monospacedDigit()
+                        Text(usdcAmount).rowTitle().monospacedDigit().fixedSize()
                     }
                 }
                 .disabled(usdcUnavailable)
+                .opacity(usdcUnavailable ? 0.45 : 1)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.pressable)
             Text("Amounts are what you can send in one payment.").smallMuted()
         } actions: {
             Button("Choose someone else", action: onBack).buttonStyle(.quiet)
@@ -169,15 +170,16 @@ private struct AmountStep: View {
         Screen {
             Text("How much for \(contact.name)?").titleStyle()
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text("CHF").font(Theme.Text.l).foregroundStyle(Theme.inkSoft)
+                Text("CHF").font(.geist(24, .semibold))
                 TextField("0.00", text: $input)
-                    .font(Theme.Text.amount)
+                    .font(.geist(48, .semibold))
                     .monospacedDigit()
                     .keyboardType(.decimalPad)
                     .focused($focused)
                     .accessibilityLabel("Amount in Swiss francs for \(contact.name)")
             }
-            .padding(.vertical, 8)
+            .padding(.bottom, 8)
+            .overlay(alignment: .bottom) { Rectangle().fill(Theme.brand).frame(height: 2) }
             if let chf, let price = session.price {
                 Text("About \(Format.btc(Format.chfToSats(chf, btcChf: price.btcChf)))").smallMuted().monospacedDigit()
             }

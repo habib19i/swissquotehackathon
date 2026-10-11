@@ -41,10 +41,10 @@ struct AttackerView: View {
             Text("A thief has your unlocked phone and can read your email. Try what he would try. Every attempt goes to the real Swissquote and recovery services.")
                 .leadStyle()
             Link("Open the client’s other device", destination: AppConfig.webURL.appending(path: "e-banking"))
-                .font(.system(size: 18, weight: .semibold))
+                .font(.geist(18, .semibold))
             ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("\(index + 1). \(step.title)").font(.system(size: 18, weight: .bold))
+                    Text("\(index + 1). \(step.title)").font(.geist(18, .bold))
                     if let outcome = outcomes[step.id] {
                         outcomeView(outcome, step: step.id)
                     } else {
@@ -52,9 +52,7 @@ struct AttackerView: View {
                             .buttonStyle(.secondary).disabled(busy != nil)
                     }
                 }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Theme.surface, in: .rect(cornerRadius: Theme.radiusCard))
+                .card(padding: 16)
             }
             if let maxLoss {
                 Text("Worst case for the client today: the Spending pocket, \(Format.chf(maxLoss, btcChf: session.price?.btcChf)).").smallMuted()

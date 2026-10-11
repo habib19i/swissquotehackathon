@@ -21,27 +21,30 @@ struct SettingsView: View {
             }
             if let message { Notice(message) }
 
-            Text("Appearance").font(Theme.Text.l).padding(.top, 8)
-            Picker("Light or dark", selection: $theme) {
-                ForEach(Appearance.Theme.allCases, id: \.rawValue) { Text($0.label).tag($0.rawValue) }
-            }
-            .pickerStyle(.segmented)
+            Text("Appearance").sectionStyle()
+            Segmented(options: Appearance.Theme.allCases.map { ($0.rawValue, $0.label) }, selection: $theme, label: "Light or dark")
             Text("Background colour").smallMuted()
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], spacing: 8) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
                 ForEach(Appearance.Paper.allCases, id: \.rawValue) { option in
+                    let chosen = paper == option.rawValue
                     Button { paper = option.rawValue } label: {
-                        HStack(spacing: 8) {
-                            Circle().fill(option.color).frame(width: 22, height: 22).overlay(Circle().stroke(Theme.line))
-                            Text(option.label).font(.system(size: 16, weight: .medium))
+                        VStack(spacing: 8) {
+                            Circle().fill(option.color).frame(width: 36, height: 36)
+                                .overlay(Circle().strokeBorder(Theme.line, lineWidth: 1))
+                            Text(option.label).font(.geist(15.75, .semibold)).foregroundStyle(Theme.ink)
                         }
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .background(Theme.surface, in: .capsule)
-                        .overlay(Capsule().stroke(paper == option.rawValue ? Theme.brand : Theme.line, lineWidth: paper == option.rawValue ? 2 : 1))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Theme.surface, in: .rect(cornerRadius: Theme.radiusCard))
+                        .overlay(RoundedRectangle(cornerRadius: Theme.radiusCard).strokeBorder(chosen ? Theme.brand : .clear, lineWidth: 2))
+                        .cardShadow()
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(paper == option.rawValue ? .isSelected : [])
+                    .buttonStyle(.pressable)
+                    .accessibilityAddTraits(chosen ? .isSelected : [])
                 }
             }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Background colour")
 
             if let account { demoAccount(account) }
         }
@@ -55,13 +58,13 @@ struct SettingsView: View {
     @ViewBuilder private func demoAccount(_ account: JSONValue) -> some View {
         let btcChf = session.price?.btcChf
         Notice {
-            HStack { Text("Swissquote demo account").bold(); MockTag() }
+            HStack { Text("Swissquote demo account").rowTitle(); MockTag() }
             Text("Pays network fees on the Premium plan (up to \(Format.chf(Units(account["dailyFeeCapSats"]), btcChf: btcChf)) per client per day) and plays your Swissquote account for transfers. It collects what the demo family receives, so test bitcoin keeps circulating.")
                 .smallMuted()
             let waiting = Units(account["waiting"])
             Text("Ready: \(Format.chf(Units(account["ready"]), btcChf: btcChf))" + (waiting.value > 0 ? ", waiting for the network: \(Format.chf(waiting, btcChf: btcChf))" : ""))
                 .monospacedDigit()
-            Text(account["address"].string ?? "").font(.system(size: 14, design: .monospaced)).textSelection(.enabled)
+            Text(account["address"].string ?? "").font(.geist(15.75)).foregroundStyle(Theme.inkSoft).textSelection(.enabled)
             Text("Fund it with test bitcoin from a faucet, ideally well before a demo.").smallMuted()
             Button("Collect the demo family’s test coins now") { Task { await collect() } }
                 .buttonStyle(.secondary).padding(.top, 6)
@@ -69,13 +72,13 @@ struct SettingsView: View {
         let base = account["base"]
         if !base.isNull {
             Notice {
-                HStack { Text("Swissquote on Base").bold(); MockTag() }
+                HStack { Text("Swissquote on Base").rowTitle(); MockTag() }
                 Text("Relays USDC payments to the network (bundler), pays their gas from its deposit (paymaster), and plays your Swissquote account for USDC transfers.")
                     .smallMuted()
                 DetailRow(label: "Test USDC", value: Format.usdc(Units(base["usdc"])))
                 DetailRow(label: "Gas deposit", value: Format.eth(Units(base["paymasterDeposit"])))
                 DetailRow(label: "Relay wallet", value: Format.eth(Units(base["eth"])))
-                Text(base["address"].string ?? "").font(.system(size: 14, design: .monospaced)).textSelection(.enabled)
+                Text(base["address"].string ?? "").font(.geist(15.75)).foregroundStyle(Theme.inkSoft).textSelection(.enabled)
                 Text("Get test USDC for this address at faucet.circle.com (network: Base Sepolia).").smallMuted()
             }
         }

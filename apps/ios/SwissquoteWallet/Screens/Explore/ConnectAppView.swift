@@ -21,7 +21,7 @@ struct ConnectAppView: View {
             Text("On the app’s website, choose WalletConnect. Scan the QR code it shows, or copy its link and paste it here.").leadStyle()
             if let unavailable = walletConnect.unavailable { Notice(.warn, unavailable) }
             if cameraAvailable {
-                Button { scanning = true } label: { Label("Scan the QR code", systemImage: "qrcode.viewfinder") }
+                Button { scanning = true } label: { IconLabel("Scan the QR code", icon: "qr") }
                     .buttonStyle(.primary)
             }
             LabeledField(label: "Or paste the link", text: $link, placeholder: "wc:…", monospaced: true)
@@ -37,7 +37,7 @@ struct ConnectAppView: View {
                     EmptyView()
                 } trailing: {
                     Button("Disconnect") { Task { try? await walletConnect.disconnect(session) } }
-                        .font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.brandText)
+                        .font(.geist(18, .semibold)).foregroundStyle(Theme.brandText)
                 }
             }
             Text("Each transaction an app asks for is checked by Swissquote and needs your Face ID. Message signatures are refused.")

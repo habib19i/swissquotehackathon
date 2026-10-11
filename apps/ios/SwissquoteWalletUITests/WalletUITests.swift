@@ -29,13 +29,13 @@ final class WalletUITests: XCTestCase {
         let savingsAddress = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'tb1q'")).firstMatch.label
         XCTAssertTrue(savingsAddress.hasPrefix("tb1q"))
         XCTAssertTrue(app.buttons["Transfer from my Swissquote account"].exists)
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        tap("Back")
 
         // Act 4, step 1: Swissquote offline, then back.
         tap("Demo panel")
         tap("Switch off")
         XCTAssertTrue(app.buttons["Bring back"].waitForExistence(timeout: 10))
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        tap("Back")
         XCTAssertTrue(text(containing: "Swissquote is offline").waitForExistence(timeout: 30), "Home does not say Swissquote is offline")
         attach("home-swissquote-offline")
         tap("Demo panel")
@@ -75,7 +75,7 @@ final class WalletUITests: XCTestCase {
         openSafe(clientNumber: "CH-4417-\(Int.random(in: 3000...9999))")
 
         // Rules: add Marc. Swissquote checks him first, then Face ID, then the waiting period.
-        app.tabBars.buttons["Rules"].tap()
+        tapTab("Rules")
         XCTAssertTrue(app.staticTexts["Contacts and rules"].waitForExistence(timeout: 30))
         tap("Add a contact")
         app.textFields["Name"].tap()
@@ -100,18 +100,18 @@ final class WalletUITests: XCTestCase {
         XCTAssertTrue(text(containing: "unfreezes after the waiting period").waitForExistence(timeout: 60), app.debugDescription)
 
         // Alerts: the Watcher reported the requests.
-        app.tabBars.buttons["Home"].tap()
+        tapTab("Home")
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Alerts'")).firstMatch.tap()
         XCTAssertTrue(app.staticTexts["Alerts"].waitForExistence(timeout: 10))
         XCTAssertTrue(text(containing: "Unfreeze the safe").waitForExistence(timeout: 30), app.debugDescription)
         tap("Cancel this change")
         attach("alerts")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        tap("Back")
 
         // Activity: a new safe has none yet.
         tap("Activity")
         XCTAssertTrue(text(containing: "Nothing yet").waitForExistence(timeout: 60), app.debugDescription)
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        tap("Back")
 
         // Plan: Standard, then back to Premium.
         tap("Plan and settings")
@@ -119,7 +119,7 @@ final class WalletUITests: XCTestCase {
         XCTAssertTrue(text(containing: "you now pay the network fee").waitForExistence(timeout: 30))
         app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Premium'")).firstMatch.tap()
         XCTAssertTrue(text(containing: "Swissquote now pays your network fees").waitForExistence(timeout: 30))
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        tap("Back")
 
         // Act 3: Attacker mode.
         tap("Demo panel")
@@ -141,7 +141,7 @@ final class WalletUITests: XCTestCase {
     func testExploreAndAssistant() {
         openSafe(clientNumber: "CH-4417-\(Int.random(in: 3000...9999))")
 
-        app.tabBars.buttons["Explore"].tap()
+        tapTab("Explore")
         XCTAssertTrue(app.staticTexts["Explore"].waitForExistence(timeout: 10))
         let uniswap = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Uniswap'")).firstMatch
         XCTAssertTrue(uniswap.waitForExistence(timeout: 30), app.debugDescription)
@@ -150,12 +150,13 @@ final class WalletUITests: XCTestCase {
         app.swipeUp()
         XCTAssertTrue(app.buttons["Approve with Face ID"].waitForExistence(timeout: 60), app.debugDescription)
         attach("explore-uniswap")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        tap("Back")
         tap("Scan an app’s QR code")
         XCTAssertTrue(app.staticTexts["Connect an app"].waitForExistence(timeout: 10))
         attach("explore-connect")
+        tap("Back")
 
-        app.tabBars.buttons["Assistant"].tap()
+        tapTab("Assistant")
         XCTAssertTrue(app.staticTexts["Assistant"].waitForExistence(timeout: 10))
         XCTAssertTrue(text(containing: "Elisabeth").waitForExistence(timeout: 30), "No greeting\n\(app.debugDescription)")
         app.buttons["Send 20 francs to Léo"].tap()
@@ -168,6 +169,53 @@ final class WalletUITests: XCTestCase {
         attach("assistant")
     }
 
+    /// Screenshots of the main screens, light then dark, to compare with the web app (not a check of behaviour).
+    func testScreenshots() {
+        openSafe(clientNumber: "CH-4417-\(Int.random(in: 3000...9999))")
+        for scheme in ["light", "dark"] {
+            if scheme == "dark" { app.buttons["Switch between light and dark mode"].firstMatch.tap() }
+            tapTab("Home")
+            sleep(3)
+            attach("\(scheme)-home")
+            app.swipeUp()
+            attach("\(scheme)-home-2")
+            app.swipeDown()
+            tap("Receive")
+            sleep(2)
+            attach("\(scheme)-receive")
+            tap("Back")
+            tapTab("Send")
+            sleep(2)
+            attach("\(scheme)-send")
+            app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Léo'")).firstMatch.tap()
+            let bitcoin = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Bitcoin'")).firstMatch
+            if bitcoin.waitForExistence(timeout: 5) { attach("\(scheme)-send-asset"); bitcoin.tap() }
+            sleep(1)
+            attach("\(scheme)-send-amount")
+            tap("Choose someone else")
+            tapTab("Rules")
+            sleep(3)
+            attach("\(scheme)-rules")
+            tapTab("Explore")
+            sleep(2)
+            attach("\(scheme)-explore")
+            tapTab("Assistant")
+            sleep(2)
+            attach("\(scheme)-assistant")
+            tapTab("Home")
+            tap("Plan and settings")
+            sleep(2)
+            attach("\(scheme)-settings")
+            tap("Back")
+        }
+    }
+
+    private func tapTab(_ name: String) {
+        let tab = app.buttons.matching(NSPredicate(format: "label == %@", name)).element(boundBy: 0)
+        XCTAssertTrue(tab.waitForExistence(timeout: 10), "No \(name) tab")
+        tab.tap()
+    }
+
     /// Acts 1 and 2 (Bitcoin), 4: real payments on signet. Needs test bitcoin in Swissquote's demo account.
     func testPayments() throws {
         openSafe(clientNumber: "CH-4417-\(Int.random(in: 3000...9999))")
@@ -177,7 +225,7 @@ final class WalletUITests: XCTestCase {
         transfer(chf: "CHF 200.00")
         app.buttons["Spending pocket"].tap()
         transfer(chf: "CHF 100.00")
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        tap("Back")
 
         // Act 2, step 1: CHF 20 to Léo from the Spending pocket, Face ID only.
         pay(contact: "Léo", chf: "20", fromSavings: false)
@@ -190,7 +238,7 @@ final class WalletUITests: XCTestCase {
         confirmAndExpectSent(to: "Sofia")
 
         // Act 4: Swissquote offline. CHF 10 to Léo from the pocket works as usual, phone only.
-        app.tabBars.buttons["Home"].tap()
+        tapTab("Home")
         tap("Demo panel")
         tap("Switch off")
         XCTAssertTrue(app.buttons["Bring back"].waitForExistence(timeout: 10))
@@ -203,7 +251,7 @@ final class WalletUITests: XCTestCase {
         useRecoveryKeyOnPage("Use my recovery key")
         XCTAssertTrue(app.staticTexts["Sent to Adam"].waitForExistence(timeout: 120), app.debugDescription)
         attach("sent-offline-savings")
-        app.tabBars.buttons["Home"].tap()
+        tapTab("Home")
         tap("Demo panel")
         tap("Bring back")
     }
@@ -250,7 +298,7 @@ final class WalletUITests: XCTestCase {
     }
 
     private func pay(contact: String, chf: String, fromSavings: Bool) {
-        app.tabBars.buttons["Send"].tap()
+        tapTab("Send")
         let person = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", contact)).firstMatch
         XCTAssertTrue(person.waitForExistence(timeout: 30))
         person.tap()

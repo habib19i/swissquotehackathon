@@ -68,15 +68,16 @@ private struct UsdcAmountStep: View {
         Screen {
             Text("How much for \(contact.name)?").titleStyle()
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text("CHF").font(Theme.Text.l).foregroundStyle(Theme.inkSoft)
+                Text("CHF").font(.geist(24, .semibold))
                 TextField("0.00", text: $input)
-                    .font(Theme.Text.amount)
+                    .font(.geist(48, .semibold))
                     .monospacedDigit()
                     .keyboardType(.decimalPad)
                     .focused($focused)
                     .accessibilityLabel("Amount in Swiss francs for \(contact.name), paid in USDC")
             }
-            .padding(.vertical, 8)
+            .padding(.bottom, 8)
+            .overlay(alignment: .bottom) { Rectangle().fill(Theme.brand).frame(height: 2) }
             if let chf, let price = session.price {
                 Text("About \(Format.usdc(Format.usdcForChf(chf, usdcChf: price.usdcChf)))").smallMuted().monospacedDigit()
             }
@@ -126,26 +127,18 @@ private struct UsdcSlip: View {
 
     var body: some View {
         let swissquotePays = payment.fee.paidBy == "swissquote"
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("You send to \(payment.contact.name)").foregroundStyle(Theme.inkSoft)
-                Text(chf(payment.amount)).font(Theme.Text.amount).monospacedDigit()
-                Text(Format.usdc(payment.amount)).smallMuted().monospacedDigit()
-            }
-            Divider()
-            VStack(spacing: 10) {
-                DetailRow(label: "To", value: payment.contact.relation.isEmpty ? payment.contact.name : "\(payment.contact.name) (\(payment.contact.relation))")
-                DetailRow(label: "From", value: "USDC")
-                DetailRow(label: "Network fee", value: swissquotePays
-                          ? "\(Format.chf(payment.fee.feeChf)), paid by Swissquote"
-                          : "\(chf(payment.fee.feeUsdc)) (\(Format.usdc(payment.fee.feeUsdc))), paid by you")
-                DetailRow(label: "You pay in total", value: chf(payment.amount + payment.fee.feeUsdc))
-            }
+        Slip {
+            Text("You send to \(payment.contact.name)").foregroundStyle(Theme.inkSoft)
+            Text(chf(payment.amount)).font(Theme.Text.amount).monospacedDigit()
+            Text(Format.usdc(payment.amount)).smallMuted().monospacedDigit()
+        } details: {
+            DetailRow(label: "To", value: payment.contact.relation.isEmpty ? payment.contact.name : "\(payment.contact.name) (\(payment.contact.relation))")
+            DetailRow(label: "From", value: "USDC")
+            DetailRow(label: "Network fee", value: swissquotePays
+                      ? "\(Format.chf(payment.fee.feeChf)), paid by Swissquote"
+                      : "\(chf(payment.fee.feeUsdc)) (\(Format.usdc(payment.fee.feeUsdc))), paid by you")
+            DetailRow(label: "You pay in total", value: chf(payment.amount + payment.fee.feeUsdc))
         }
-        .padding(20)
-        .background(Theme.surface, in: .rect(cornerRadius: Theme.radiusPanel))
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Payment details")
     }
 
     private func chf(_ units: Units) -> String {
@@ -194,7 +187,7 @@ struct UsdcConfirmView: View {
                     Button("Yes, I want to make this payment") { confirmed = true }.buttonStyle(.primary)
                 } else {
                     Button { Task { await confirm() } } label: {
-                        Label(sending ? "Sending…" : "Confirm with Face ID", systemImage: "faceid")
+                        FaceIdLabel(sending ? "Sending…" : "Confirm with Face ID")
                     }
                     .buttonStyle(.primary).disabled(sending)
                 }

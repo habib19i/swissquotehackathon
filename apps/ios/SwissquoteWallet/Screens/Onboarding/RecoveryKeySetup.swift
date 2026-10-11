@@ -25,7 +25,7 @@ struct RecoveryKeySetup: View {
             VStack(spacing: 12) {
                 ForEach(Self.kinds, id: \.id) { option in
                     ChoiceCard(selected: kind == option.id, action: { kind = option.id }) {
-                        Text(option.name).font(.system(size: 18, weight: .bold))
+                        Text(option.name).rowTitle()
                         Text(option.description).smallMuted()
                     }
                 }

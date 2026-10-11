@@ -68,16 +68,29 @@ struct AssistantView: View {
                 HStack {
                     Text("Assistant").titleStyle()
                     Spacer()
-                    Picker("Language", selection: $language) {
-                        ForEach(setup?["languages"].array.indices ?? 0..<0, id: \.self) { index in
-                            let option = setup!["languages"][index]
-                            Text(option["name"].string ?? "").tag(option["id"].string ?? "en")
+                    Menu {
+                        Picker("Language", selection: $language) {
+                            ForEach(setup?["languages"].array.indices ?? 0..<0, id: \.self) { index in
+                                let option = setup!["languages"][index]
+                                Text(option["name"].string ?? "").tag(option["id"].string ?? "en")
+                            }
                         }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text(languageName).font(.geist(15.75, .semibold))
+                            Image(systemName: "chevron.down").font(.geist(11, .bold)).foregroundStyle(Theme.inkSoft)
+                        }
+                        .foregroundStyle(Theme.ink)
+                        .padding(.horizontal, 16)
+                        .frame(minHeight: 40)
+                        .background(Theme.surface, in: .capsule)
+                        .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 1))
                     }
+                    .accessibilityLabel("Language: \(languageName)")
                     .onChange(of: language) { if messages.count <= 1 { Task { await loadSetup() } } }
                 }
                 ForEach(messages) { message in bubble(message).id(message.id) }
-                if busy { Text("…").font(Theme.Text.l).foregroundStyle(Theme.inkSoft).id("busy") }
+                if busy { Text("…").font(Theme.Text.m).foregroundStyle(Theme.inkSoft).padding(.horizontal, 16).padding(.vertical, 12).background(Theme.surface, in: .rect(cornerRadius: 18)).id("busy") }
                 if messages.count <= 1 {
                     FlowSuggestions(suggestions: setup?["suggestions"].array.compactMap(\.string) ?? []) { send($0) }
                         .disabled(busy || session.price == nil)
@@ -100,59 +113,72 @@ struct AssistantView: View {
         .onChange(of: speech.error) { if let error = speech.error { say(error) } }
     }
 
+    /// The request field and its two round buttons (`.composer`), then the promise that nothing happens
+    /// without Face ID.
     private var composer: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                TextField(setup?["example"].string ?? "", text: $input)
-                    .font(Theme.Text.m)
-                    .padding(14)
-                    .background(Theme.surface, in: .rect(cornerRadius: Theme.radiusControl))
-                    .overlay(RoundedRectangle(cornerRadius: Theme.radiusControl).stroke(Theme.line))
+                InputField(placeholder: setup?["example"].string ?? "", text: $input, label: "Your request")
                     .submitLabel(.send)
                     .onSubmit { send(input) }
                     .disabled(busy)
-                    .accessibilityLabel("Your request")
                 Button {
                     if speech.listening { speech.stop() } else { Task { await speech.start(language: language) } }
                 } label: {
-                    Image(systemName: speech.listening ? "stop.fill" : "mic.fill")
-                        .frame(width: 48, height: 48)
-                        .background(speech.listening ? Theme.danger : Theme.surface, in: .circle)
-                        .foregroundStyle(speech.listening ? .white : Theme.ink)
+                    Icon("mic")
+                        .frame(width: 60, height: 60)
+                        .foregroundStyle(speech.listening ? Theme.onBrand : Theme.ink)
+                        .background(speech.listening ? Theme.brand : Theme.surface, in: .circle)
+                        .overlay(Circle().strokeBorder(speech.listening ? Theme.brand : Theme.ink, lineWidth: 1))
                 }
+                .buttonStyle(.pressable)
                 .accessibilityLabel(speech.listening ? "Stop listening" : "Speak your request")
                 .disabled(busy)
+                let empty = input.trimmingCharacters(in: .whitespaces).isEmpty
                 Button { send(input) } label: {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 18, weight: .bold))
-                        .frame(width: 48, height: 48)
-                        .background(Theme.brand, in: .circle)
+                    Icon("send")
+                        .frame(width: 60, height: 60)
                         .foregroundStyle(Theme.onBrand)
+                        .background(Theme.brand, in: .circle)
+                        .opacity(busy || empty || session.price == nil ? 0.45 : 1)
                 }
+                .buttonStyle(.pressable)
                 .accessibilityLabel("Send to the assistant")
-                .disabled(busy || input.trimmingCharacters(in: .whitespaces).isEmpty || session.price == nil)
+                .disabled(busy || empty || session.price == nil)
             }
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text("The assistant only prepares. Nothing happens until you confirm with Face ID. Voice:").smallMuted()
-                MockTag(text: "Mock: Apple speech")
+            Text("The assistant only prepares. Nothing happens until you confirm with Face ID.").smallMuted()
+            HStack(spacing: 6) {
+                Text("Voice:").smallMuted()
+                MockTag(text: "Apple speech recognition")
             }
         }
     }
 
+    private var languageName: String {
+        setup?["languages"].array.first { $0["id"].string == language }?["name"].string ?? "English"
+    }
+
+    /// `.bubble.client` (dark, on the right) and `.bubble.assistant` (white, on the left).
     private func bubble(_ message: Message) -> some View {
-        HStack {
-            if message.fromClient { Spacer(minLength: 40) }
-            VStack(alignment: .leading, spacing: 10) {
+        let client = message.fromClient
+        let shape = UnevenRoundedRectangle(topLeadingRadius: 18, bottomLeadingRadius: client ? 18 : 6,
+                                           bottomTrailingRadius: client ? 6 : 18, topTrailingRadius: 18)
+        return HStack {
+            if client { Spacer(minLength: 40) }
+            VStack(alignment: .leading, spacing: 12) {
                 Text(message.text).font(Theme.Text.m)
                 if let action = message.action { ChatAction(action: action, language: language) { say($0) } }
             }
-            .padding(14)
-            .foregroundStyle(message.fromClient ? Theme.onBrand : Theme.ink)
-            .background(message.fromClient ? Theme.brand : Theme.surface, in: .rect(cornerRadius: Theme.radiusCard))
-            if !message.fromClient { Spacer(minLength: 40) }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .foregroundStyle(client ? Color.white : Theme.ink)
+            .background(client ? Theme.night : Theme.surface, in: shape)
+            .overlay { if !client { shape.strokeBorder(Theme.line, lineWidth: 1) } }
+            .cardShadow()
+            if !client { Spacer(minLength: 40) }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel((message.fromClient ? "You: " : "Assistant: ") + message.text)
+        .accessibilityLabel((client ? "You: " : "Assistant: ") + message.text)
     }
 
     // MARK: - Conversation
@@ -277,15 +303,18 @@ private struct FlowSuggestions: View {
     let onPick: (String) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        FlowLayout(spacing: 8) {
             ForEach(suggestions, id: \.self) { suggestion in
-                Button(suggestion) { onPick(suggestion) }
-                    .font(.system(size: 17, weight: .medium))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(Theme.surface, in: .capsule)
-                    .overlay(Capsule().stroke(Theme.line))
-                    .foregroundStyle(Theme.ink)
+                Button { onPick(suggestion) } label: {
+                    Text(suggestion)
+                        .font(.geist(15.75, .medium))
+                        .foregroundStyle(Theme.ink)
+                        .padding(.horizontal, 16)
+                        .frame(minHeight: 40)
+                        .background(Theme.surface, in: .capsule)
+                        .overlay(Capsule().strokeBorder(Theme.line, lineWidth: 1))
+                }
+                .buttonStyle(.pressable)
             }
         }
         .accessibilityElement(children: .contain)

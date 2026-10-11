@@ -18,8 +18,10 @@ struct ActivityView: View {
             }
             if items?.isEmpty == true { Text("Nothing yet. Payments in and out of your safe will appear here.").leadStyle() }
             if items == nil && error == nil { ProgressView().frame(maxWidth: .infinity) }
-            VStack(spacing: 12) {
-                ForEach((items ?? []).indices, id: \.self) { index in row(items![index]) }
+            if let items, !items.isEmpty {
+                RowsGroup {
+                    ForEach(items.indices, id: \.self) { index in row(items[index]) }
+                }
             }
             Text("Tap a payment to see it on its network.").smallMuted()
         }
@@ -38,12 +40,8 @@ struct ActivityView: View {
         }
         if fee.value > 0 { detail += ", network fee \(chf(fee, usdc: usdc))" }
         return Link(destination: URL(string: item["link"].string ?? "") ?? AppConfig.webURL) {
-            RowCard(title: item["label"].string ?? "", subtitle: detail) {
-                TokenMark(token: usdc ? .usdc : .btc, size: 36)
-            } trailing: {
-                Text((amount.value > 0 ? "+" : "") + chf(amount, usdc: usdc))
-                    .font(.system(size: 18, weight: .semibold)).monospacedDigit()
-                    .foregroundStyle(amount.value > 0 ? Theme.protect : Theme.ink)
+            GroupRow(title: item["label"].string ?? "", subtitle: detail) {
+                Text((amount.value > 0 ? "+" : "") + chf(amount, usdc: usdc)).rowTitle().monospacedDigit().fixedSize()
             }
         }
         .buttonStyle(.plain)
@@ -85,19 +83,18 @@ struct AlertsView: View {
             if let error { Notice(.error, error) }
             if let recovery, !recovery.isNull { recoveryCard(recovery) }
             ForEach(pending.indices, id: \.self) { index in pendingCard(pending[index]) }
-            VStack(spacing: 10) {
-                if alerts.isEmpty { Text("No alerts yet.").leadStyle() }
+            RowsGroup {
+                if alerts.isEmpty { Text("No alerts yet.").foregroundStyle(Theme.inkSoft).padding(.vertical, 18) }
                 ForEach(alerts.indices, id: \.self) { index in
                     let alert = alerts[index]
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text(alert["message"].string ?? "").font(Theme.Text.m)
                         if let at = alert["at"].string.flatMap(RecoverView.date) {
                             Text(at.formatted(date: .omitted, time: .standard)).smallMuted()
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(16)
-                    .background(Theme.surface, in: .rect(cornerRadius: Theme.radiusCard))
+                    .padding(.vertical, 18)
                     .accessibilityElement(children: .combine)
                 }
             }

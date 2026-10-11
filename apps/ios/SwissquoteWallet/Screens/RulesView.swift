@@ -104,16 +104,19 @@ struct RulesView: View {
     }
 
     private func contacts(_ rulebook: JSONValue) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Your contacts").font(Theme.Text.l).padding(.top, 8)
-            ForEach(rulebook["contacts"].array.map(Contact.init(json:))) { contact in
-                RowCard(title: contact.name, subtitle: contact.relation.isEmpty ? "Contact" : contact.relation) {
-                    Avatar(text: String(contact.name.prefix(1)))
-                } trailing: {
-                    Button("Remove") {
-                        change(["kind": "removeContact", "contactId": .string(contact.id)], "Done: \(contact.name) is no longer a contact.")
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Your contacts").sectionStyle()
+            RowsGroup {
+                ForEach(rulebook["contacts"].array.map(Contact.init(json:))) { contact in
+                    GroupRow(title: contact.name, subtitle: contact.relation.isEmpty ? "Contact" : contact.relation) {
+                        Avatar(text: String(contact.name.prefix(1)))
+                    } trailing: {
+                        Button("Remove") {
+                            change(["kind": "removeContact", "contactId": .string(contact.id)], "Done: \(contact.name) is no longer a contact.")
+                        }
+                        .buttonStyle(.quietInline).disabled(busy)
+                        .accessibilityLabel("Remove \(contact.name)")
                     }
-                    .font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.brandText).disabled(busy)
                 }
             }
             if adding { addContactForm } else {
@@ -141,65 +144,64 @@ struct RulesView: View {
             }
             .buttonStyle(.quiet)
         }
-        .padding(16)
-        .background(Theme.surface, in: .rect(cornerRadius: Theme.radiusCard))
+        .card(padding: 16)
     }
 
     private func apps(_ rulebook: JSONValue) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Approved apps").font(Theme.Text.l).padding(.top, 8)
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Approved apps").sectionStyle()
             let ids = rulebook["apps"].array.compactMap(\.string)
-            if ids.isEmpty {
-                Text("None yet. In Explore, approve an app to use it with Face ID alone, within a daily limit.").smallMuted()
-            }
-            ForEach(ids, id: \.self) { id in
-                let name = Self.appNames[id] ?? id
-                RowCard(title: name, subtitle: "Face ID alone, within a daily limit") {
-                    Avatar(text: String(name.prefix(1)), size: 40)
-                } trailing: {
-                    Button("Remove") {
-                        change(["kind": "removeApp", "appId": .string(id)], "Done: \(name) now needs Swissquote's check again.")
+            RowsGroup {
+                if ids.isEmpty {
+                    Text("None yet. In Explore, approve an app to use it with Face ID alone, within a daily limit.")
+                        .smallMuted().padding(.vertical, 18)
+                }
+                ForEach(ids, id: \.self) { id in
+                    let name = Self.appNames[id] ?? id
+                    GroupRow(title: name, subtitle: "Face ID alone, within a daily limit") {
+                        AppLogo(id: id, size: 40)
+                    } trailing: {
+                        Button("Remove") {
+                            change(["kind": "removeApp", "appId": .string(id)], "Done: \(name) now needs Swissquote's check again.")
+                        }
+                        .buttonStyle(.quietInline).disabled(busy)
+                        .accessibilityLabel("Remove \(name)")
                     }
-                    .font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.brandText).disabled(busy)
                 }
             }
         }
     }
 
     private func limits(_ rulebook: JSONValue) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Your limits").font(Theme.Text.l).padding(.top, 8)
-            limitRow("Daily limit", "Face ID alone pays your contacts up to this each day; above it, Swissquote asks you to confirm",
-                     value: rulebook["dailyLimitChf"].number ?? 0, limit: .daily)
-            limitRow("Spending pocket size", "What your phone can spend on its own",
-                     value: rulebook["pocketSizeChf"].number ?? 0, limit: .pocket)
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Your limits").sectionStyle()
+            RowsGroup {
+                limitRow("Daily limit", "Face ID alone pays your contacts up to this each day; above it, Swissquote asks you to confirm",
+                         value: rulebook["dailyLimitChf"].number ?? 0, limit: .daily)
+                limitRow("Spending pocket size", "What your phone can spend on its own",
+                         value: rulebook["pocketSizeChf"].number ?? 0, limit: .pocket)
+            }
             if let editing {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        Text("CHF").font(Theme.Text.l).foregroundStyle(Theme.inkSoft)
-                        TextField("0", text: $amount)
-                            .font(Theme.Text.amount).monospacedDigit().keyboardType(.decimalPad)
-                            .accessibilityLabel(editing == .daily ? "New daily limit in Swiss francs" : "New Spending pocket size in Swiss francs")
-                    }
+                VStack(alignment: .leading, spacing: 16) {
+                    AmountEntry(unit: "CHF", text: $amount,
+                                label: editing == .daily ? "New daily limit in Swiss francs" : "New Spending pocket size in Swiss francs",
+                                placeholder: "0")
                     Button(busy ? "Waiting for Face ID…" : "Save with Face ID") { saveLimit(rulebook) }
                         .buttonStyle(.primary).disabled(busy)
                     Button("Cancel") { self.editing = nil }.buttonStyle(.quiet)
                 }
-                .padding(16)
-                .background(Theme.surface, in: .rect(cornerRadius: Theme.radiusCard))
+                .card(padding: 16)
             }
         }
     }
 
     private func limitRow(_ title: String, _ detail: String, value: Double, limit: Limit) -> some View {
-        RowCard(title: title, subtitle: detail) {
-            EmptyView()
-        } trailing: {
+        GroupRow(title: title, subtitle: detail) {
             Button(Format.chf(value)) {
                 editing = limit
                 amount = String(format: "%g", value)
             }
-            .font(.system(size: 18, weight: .semibold)).foregroundStyle(Theme.brandText).disabled(busy)
+            .buttonStyle(.quietInline).disabled(busy)
             .accessibilityLabel("\(title): \(Format.chf(value)). Change")
         }
     }
@@ -314,14 +316,20 @@ struct ScreeningCard: View {
     var body: some View {
         let blocked = screening["verdict"].string == "BLOCKED"
         Notice(blocked ? .error : .warn) {
-            Label(blocked ? "Stopped by Swissquote" : "Checked by Swissquote", systemImage: "checkmark.shield.fill")
-                .font(.system(size: 18, weight: .semibold))
+            IconLabel(blocked ? "Stopped by Swissquote" : "Checked by Swissquote", icon: "shield")
+                .font(.geist(18, .semibold))
             ForEach(screening["checks"].array.indices, id: \.self) { index in
                 let check = screening["checks"][index]
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Image(systemName: check["result"].string == "pass" ? "checkmark" : check["result"].string == "fail" ? "xmark" : "exclamationmark")
-                        .accessibilityHidden(true)
+                let result = check["result"].string
+                HStack(alignment: .top, spacing: 8) {
+                    Group {
+                        if result == "pass" { Icon("check", size: 18).foregroundStyle(Theme.protect).padding(.top, 3) }
+                        else { Text(result == "fail" ? "✕" : "!").bold().foregroundStyle(result == "fail" ? Theme.danger : Theme.ink) }
+                    }
+                    .frame(width: 22, alignment: .leading)
+                    .accessibilityHidden(true)
                     (Text("\(check["label"].string ?? "").").bold() + Text(" \(check["detail"].string ?? "")"))
+                        .foregroundStyle(Theme.ink)
                 }
             }
         }
@@ -336,17 +344,14 @@ struct LabeledField: View {
     var monospaced = false
     var onEdit: () -> Void = {}
 
+    /// `.field`: the label in semibold, then the web's `.input`.
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(label).font(.system(size: 17, weight: .semibold))
-            TextField(placeholder, text: $text)
-                .font(monospaced ? .system(size: 16, design: .monospaced) : Theme.Text.m)
+        VStack(alignment: .leading, spacing: 8) {
+            Text(label).font(.geist(18, .semibold))
+            InputField(placeholder: placeholder, text: $text, monospaced: monospaced, label: label)
                 .textInputAutocapitalization(monospaced ? .never : .words)
                 .autocorrectionDisabled(monospaced)
-                .padding(14)
-                .background(Theme.surfaceAlt, in: .rect(cornerRadius: Theme.radiusControl))
                 .onChange(of: text) { onEdit() }
-                .accessibilityLabel(label)
         }
     }
 }

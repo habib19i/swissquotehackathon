@@ -38,7 +38,7 @@ struct BitcoinConfirmView: View {
                     Button("Yes, I want to make this payment") { confirmed = true }.buttonStyle(.primary)
                 } else {
                     Button { Task { await confirm() } } label: {
-                        Label(sending ? "Sending…" : "Confirm with Face ID", systemImage: "faceid")
+                        FaceIdLabel(sending ? "Sending…" : "Confirm with Face ID")
                     }
                     .buttonStyle(.primary)
                     .disabled(sending || session.price == nil)
@@ -72,10 +72,9 @@ struct ReviewNotice: View {
 
     var body: some View {
         Notice(review.verdict == "APPROVE" ? .ok : review.verdict == "BLOCKED" ? .error : .warn) {
-            Label(review.verdict == "APPROVE" ? "Checked by Swissquote"
-                  : review.verdict == "BLOCKED" ? "Stopped by Swissquote" : "Swissquote asks you to check",
-                  systemImage: "checkmark.shield.fill")
-                .font(.system(size: 18, weight: .semibold))
+            IconLabel(review.verdict == "APPROVE" ? "Checked by Swissquote"
+                  : review.verdict == "BLOCKED" ? "Stopped by Swissquote" : "Swissquote asks you to check", icon: "shield")
+                .font(.geist(18, .semibold))
             ForEach(review.reasons, id: \.self) { Text($0) }
         }
     }
@@ -89,25 +88,16 @@ struct PaymentSlip: View {
         let spend = payment.draft.spend
         let swissquotePays = spend.paidBy == "swissquote"
         let btcChf = session.price?.btcChf
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("You send to \(payment.contact.name)").foregroundStyle(Theme.inkSoft)
-                Text(Format.chf(spend.amount, btcChf: btcChf)).font(Theme.Text.amount).monospacedDigit()
-                Text(Format.btc(spend.amount)).smallMuted().monospacedDigit()
-            }
-            Divider()
-            VStack(spacing: 10) {
-                DetailRow(label: "To", value: "\(payment.contact.name) (\(payment.contact.relation))")
-                DetailRow(label: "From", value: payment.from == "pocket" ? "Spending pocket" : "Savings safe")
-                DetailRow(label: "Network fee", value: "\(Format.chf(spend.fee, btcChf: btcChf)), paid by \(swissquotePays ? "Swissquote" : "you")")
-                DetailRow(label: "You pay in total", value: Format.chf(swissquotePays ? spend.amount : spend.amount + spend.fee, btcChf: btcChf))
-            }
-            if let note = payment.draft.feeNote { Text(note).smallMuted() }
+        Slip(note: payment.draft.feeNote) {
+            Text("You send to \(payment.contact.name)").foregroundStyle(Theme.inkSoft)
+            Text(Format.chf(spend.amount, btcChf: btcChf)).font(Theme.Text.amount).monospacedDigit()
+            Text(Format.btc(spend.amount)).smallMuted().monospacedDigit()
+        } details: {
+            DetailRow(label: "To", value: "\(payment.contact.name) (\(payment.contact.relation))")
+            DetailRow(label: "From", value: payment.from == "pocket" ? "Spending pocket" : "Savings safe")
+            DetailRow(label: "Network fee", value: "\(Format.chf(spend.fee, btcChf: btcChf)), paid by \(swissquotePays ? "Swissquote" : "you")")
+            DetailRow(label: "You pay in total", value: Format.chf(swissquotePays ? spend.amount : spend.amount + spend.fee, btcChf: btcChf))
         }
-        .padding(20)
-        .background(Theme.surface, in: .rect(cornerRadius: Theme.radiusPanel))
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Payment details")
     }
 }
 

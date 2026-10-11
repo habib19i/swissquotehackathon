@@ -41,13 +41,10 @@ struct RecoverView: View {
                 Text("Bring your safe to this phone").titleStyle()
                 Text("Lost or stolen phone? Your safe is not lost. First, log in to your Swissquote account on this new phone.").leadStyle()
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Client number").font(.system(size: 18, weight: .semibold))
+                    Text("Client number").font(.geist(18, .semibold))
                     ClientNumberField(text: $clientNumber)
                 }
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    MockTag()
-                    Text("The Swissquote login is simulated.").smallMuted()
-                }
+                MockNote("The Swissquote login is simulated.")
                 errorNotice
             } actions: {
                 Button("Continue") { attempt(identify) }.buttonStyle(.primary)
@@ -59,7 +56,7 @@ struct RecoverView: View {
                 Text("This new phone gets its own Face ID key. Your old phone’s key will stop working.").leadStyle()
                 errorNotice
             } actions: {
-                Button { attempt(newFaceId) } label: { Label("Use Face ID", systemImage: "faceid") }.buttonStyle(.primary)
+                Button { attempt(newFaceId) } label: { FaceIdLabel("Use Face ID") }.buttonStyle(.primary)
             }
 
         case .recoveryKey:
@@ -75,16 +72,8 @@ struct RecoverView: View {
             Screen {
                 Text("A quick face check").titleStyle()
                 Text("Swissquote compares your face with the photo from when you opened your account.").leadStyle()
-                Image(systemName: "faceid")
-                    .font(.system(size: 72))
-                    .foregroundStyle(scanning ? Theme.brand : Theme.inkSoft)
-                    .symbolEffect(.pulse, isActive: scanning)
-                    .frame(maxWidth: .infinity, minHeight: 160)
-                    .accessibilityHidden(true)
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    MockTag()
-                    Text("The face check is simulated in this prototype; Swissquote signs its result for the recovery provider.").smallMuted()
-                }
+                FaceScan(scanning: scanning)
+                MockNote("The face check is simulated in this prototype; Swissquote signs its result for the recovery provider.")
                 errorNotice
             } actions: {
                 Button(scanning ? "Checking…" : "Start the face check") { attempt(runFaceCheck) }
@@ -113,7 +102,7 @@ struct RecoverView: View {
                 }
                 if !restoring {
                     Notice {
-                        Label("Swissquote alerted you on every channel. If this was not you, you can cancel from any device.", systemImage: "checkmark.shield.fill")
+                        IconLabel("Swissquote alerted you on every channel. If this was not you, you can cancel from any device.", icon: "shield")
                     }
                 } else {
                     KeyHolders(ready: [false, true, true])
@@ -245,5 +234,24 @@ struct RecoverView: View {
     static func date(_ iso: String) -> Date? {
         if let date = try? Date(iso, strategy: .iso8601.year().month().day().time(includingFractionalSeconds: true)) { return date }
         return try? Date(iso, strategy: .iso8601)
+    }
+}
+
+/// The face check's circle (`.face-scan`): the face icon in a green ring that pulses.
+private struct FaceScan: View {
+    let scanning: Bool
+    @State private var pulse = false
+
+    var body: some View {
+        Icon("face", size: 72)
+            .foregroundStyle(Theme.ink)
+            .frame(width: 180, height: 180)
+            .background(Theme.surface, in: .circle)
+            .overlay(Circle().strokeBorder(Theme.protect, lineWidth: 3))
+            .background(Circle().fill(Theme.protectBg).padding(pulse ? -10 : 0))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .onAppear { withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { pulse = true } }
+            .accessibilityHidden(true)
     }
 }

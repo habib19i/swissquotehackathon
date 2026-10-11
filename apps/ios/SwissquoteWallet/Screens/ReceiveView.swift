@@ -49,11 +49,8 @@ struct ReceiveView: View {
     var body: some View {
         Screen {
             Text("Receive").titleStyle()
-            Picker("Where should the money go?", selection: $target) {
-                ForEach(Target.allCases, id: \.self) { Text($0.place).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .onChange(of: target) { copied = false }
+            Segmented(options: Target.allCases.map { ($0, $0.place) }, selection: $target, label: "Where should the money go?")
+                .onChange(of: target) { copied = false }
             Text(target.explained).leadStyle()
             if target == .usdc, let usdcError { Notice(.error, usdcError) }
             if let result {
@@ -66,14 +63,14 @@ struct ReceiveView: View {
                 QRCodeView(text: target == .usdc ? "ethereum:\(address)@84532" : "bitcoin:\(address)")
                     .accessibilityLabel("QR code of your \(target.place) address")
                 Text(address)
-                    .font(.system(size: 16, design: .monospaced))
+                    .smallMuted()
+                    .monospacedDigit()
                     .textSelection(.enabled)
-                    .frame(maxWidth: .infinity)
-                    .multilineTextAlignment(.center)
             }
         } actions: {
             if choosing {
                 Text("How much should Swissquote send to your \(target.place)?").foregroundStyle(Theme.inkSoft)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 8) {
                     ForEach(target.transferAmountsChf, id: \.self) { chf in
                         Button(Format.chf(chf)) { Task { await transfer(chf) } }
@@ -89,10 +86,7 @@ struct ReceiveView: View {
                     copied = true
                 }
                 .buttonStyle(.secondary).disabled(address == nil)
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    MockTag()
-                    Text("Transfers come from a demo Swissquote account holding test bitcoin and test USDC.").smallMuted()
-                }
+                MockNote("Transfers come from a demo Swissquote account holding test bitcoin and test USDC.")
             }
         }
         .navigationTitle("")
@@ -122,7 +116,7 @@ struct ReceiveView: View {
     }
 }
 
-/// A black-on-white QR code drawn with Core Image, crisp at any size.
+/// A black-on-white QR code drawn with Core Image, crisp at any size, on a white card (`.qr`).
 struct QRCodeView: View {
     let text: String
 
@@ -134,9 +128,11 @@ struct QRCodeView: View {
                 Color.clear
             }
         }
-        .frame(maxWidth: 260, maxHeight: 260)
+        .frame(width: 240, height: 240)
         .padding(16)
-        .background(.white, in: .rect(cornerRadius: Theme.radiusCard))
+        .background(.white, in: .rect(cornerRadius: Theme.radiusPanel))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusPanel).strokeBorder(Theme.line, lineWidth: 1))
+        .cardShadow()
         .frame(maxWidth: .infinity)
     }
 

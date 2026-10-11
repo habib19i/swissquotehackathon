@@ -14,21 +14,13 @@ struct ExploreView: View {
         Screen(tabs: true) {
             Text("Explore").titleStyle()
             Text("Apps Swissquote has checked for you. Whatever you get back always lands in your own safe.").leadStyle()
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass").foregroundStyle(Theme.inkSoft)
-                TextField("Search: exchange, earn, Aave…", text: $query)
-                    .font(Theme.Text.m)
-                    .autocorrectionDisabled()
-                    .accessibilityLabel("Search apps")
-            }
-            .padding(14)
-            .background(Theme.surface, in: .capsule)
+            SearchBox(text: $query)
             NavigationLink { ConnectAppView(profile: profile) } label: {
-                Label("Scan an app’s QR code", systemImage: "qrcode.viewfinder")
+                IconLabel("Scan an app’s QR code", icon: "qr")
             }
             .buttonStyle(.secondary)
             if apps.isEmpty && !query.isEmpty { Text("No app matches “\(query)”.").leadStyle() }
-            VStack(spacing: 12) {
+            VStack(spacing: 10) {
                 ForEach(apps.indices, id: \.self) { index in
                     let app = apps[index]
                     let id = app["id"].string ?? ""
@@ -36,12 +28,8 @@ struct ExploreView: View {
                         RowCard(title: app["name"].string ?? id, subtitle: app["tagline"].string) {
                             AppLogo(id: id, size: 46)
                         } trailing: {
-                            Text(approved.contains(id) ? "Face ID" : app["category"].string ?? "")
-                                .font(.system(size: 14, weight: .semibold))
-                                .padding(.horizontal, 10).padding(.vertical, 4)
-                                .background(approved.contains(id) ? Theme.protectBg : Theme.surfaceAlt, in: .capsule)
-                                .foregroundStyle(approved.contains(id) ? Theme.protect : Theme.inkSoft)
-                            Image(systemName: "chevron.right").foregroundStyle(Theme.inkSoft)
+                            StatusChip(text: approved.contains(id) ? "Face ID" : app["category"].string ?? "", approved: approved.contains(id))
+                            Icon("chevron", size: 18).foregroundStyle(Theme.inkSoft)
                         }
                     }
                     .buttonStyle(.plain)
@@ -69,7 +57,7 @@ struct AppLogo: View {
             if let path = Bundle.main.path(forResource: id, ofType: "webp"), let image = UIImage(contentsOfFile: path) {
                 Image(uiImage: image).resizable().scaledToFill()
             } else {
-                Text(String(id.prefix(1)).uppercased()).font(.system(size: size * 0.45, weight: .bold))
+                Text(String(id.prefix(1)).uppercased()).font(.geist(size * 0.45, .bold))
                     .frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.brandTint)
             }
         }
@@ -177,21 +165,16 @@ private struct SwapPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Picker("Direction", selection: $fromUsdc) {
-                Text("USDC → ETH").tag(true)
-                Text("ETH → USDC").tag(false)
-            }
-            .pickerStyle(.segmented)
+            Segmented(options: [(true, "USDC → ETH"), (false, "ETH → USDC")], selection: $fromUsdc, label: "Direction")
             AmountField(unit: fromUsdc ? "USDC" : "ETH", text: $input, label: "Amount of \(fromUsdc ? "USDC" : "ETH") to exchange")
             Text(haveText).smallMuted()
-            Text(quoteText).font(.system(size: 18, weight: .semibold))
+            Text(quoteText).rowTitle()
             PrepareButton(enabled: amountIn != nil && minOut != nil, request: {
                 .object(["app": "uniswap", "tokenIn": tokens?[fromUsdc ? "usdc" : "weth"] ?? .null,
                          "amountIn": .string(amountIn ?? "0"), "minOut": .string(minOut ?? "0")])
             }, onReady: onReady)
         }
-        .padding(16)
-        .background(Theme.surface, in: .rect(cornerRadius: Theme.radiusCard))
+        .card(padding: 16)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Exchange")
         .task {
@@ -253,11 +236,7 @@ private struct AavePanel: View {
                 DetailRow(label: "Your ETH in Aave", value: positions.map { "\(Format.eth(Units(JSONValue.string($0.ethInAave)))) · \(chf($0.ethInAave))" } ?? "…")
                 DetailRow(label: "ETH in your safe", value: positions.map { Format.eth(Units(JSONValue.string($0.eth))) } ?? "…")
             }
-            Picker("Deposit or withdraw", selection: $deposit) {
-                Text("Deposit").tag(true)
-                Text("Withdraw").tag(false)
-            }
-            .pickerStyle(.segmented)
+            Segmented(options: [(true, "Deposit"), (false, "Withdraw")], selection: $deposit, label: "Deposit or withdraw")
             AmountField(unit: "ETH", text: $input, label: "Amount of ETH to \(deposit ? "deposit" : "withdraw")")
             if let available, TokenAmount.compare(available, "0") > 0 {
                 Button(deposit ? "Deposit all my ETH" : "Withdraw everything") { input = TokenAmount.decimal(available, decimals: 18) }
@@ -273,8 +252,7 @@ private struct AavePanel: View {
                                 "amount": .string(all ? Self.everything : amount ?? "0")])
             }, onReady: onReady)
         }
-        .padding(16)
-        .background(Theme.surface, in: .rect(cornerRadius: Theme.radiusCard))
+        .card(padding: 16)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Earn")
         .task {
@@ -311,8 +289,8 @@ private struct AppApproval: View {
             } else if supported == false {
                 Text("Your safe was opened before apps were available: each use is checked by Swissquote.").smallMuted()
             } else if approved == true {
-                Label("\(app.name) works with Face ID alone, within a daily limit. You can remove it in Rules.", systemImage: "checkmark.shield.fill")
-                    .foregroundStyle(Theme.protect).font(.system(size: 17, weight: .semibold))
+                IconLabel("\(app.name) works with Face ID alone, within a daily limit. You can remove it in Rules.", icon: "shield")
+                    .foregroundStyle(Theme.protect).font(.geist(18, .semibold))
             } else if let pending, let until = pending["effectiveAt"].string.flatMap(RecoverView.date) {
                 Notice(.warn) {
                     Countdown(until: until, prefix: "\(app.name) works with Face ID alone in ") { Task { await load() } }
@@ -321,15 +299,14 @@ private struct AppApproval: View {
                 }
             } else if approved == false {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Use \(app.name) with Face ID alone").font(.system(size: 18, weight: .bold))
+                    Text("Use \(app.name) with Face ID alone").font(.geist(18, .bold))
                     Text("Today, Swissquote checks each use. Approve it in your rules and Face ID will be enough, within a daily limit. As with a new contact, it takes effect after a waiting period, and you are alerted.")
                         .smallMuted()
                     if let message { Notice(message) }
                     Button(busy ? "Waiting for Face ID…" : "Approve with Face ID") { Task { await approve() } }
                         .buttonStyle(.secondary).disabled(busy)
                 }
-                .padding(16)
-                .background(Theme.surface, in: .rect(cornerRadius: Theme.radiusCard))
+                .card(padding: 16)
             }
         }
         .task { await load() }
@@ -362,12 +339,7 @@ private struct AmountField: View {
     let label: String
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(unit).font(Theme.Text.l).foregroundStyle(Theme.inkSoft)
-            TextField("0.00", text: $text)
-                .font(Theme.Text.xl).monospacedDigit().keyboardType(.decimalPad)
-                .accessibilityLabel(label)
-        }
+        AmountEntry(unit: unit, text: $text, label: label, size: 40)
     }
 }
 
@@ -396,5 +368,27 @@ enum TokenAmount {
         let x = String(a.drop(while: { $0 == "0" })), y = String(b.drop(while: { $0 == "0" }))
         if x.count != y.count { return x.count < y.count ? -1 : 1 }
         return x == y ? 0 : (x < y ? -1 : 1)
+    }
+}
+
+/// The search field (`.search-box`): a white pill with the search icon, outlined in orange while typing.
+private struct SearchBox: View {
+    @Binding var text: String
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Icon("search", size: 22).foregroundStyle(Theme.inkSoft)
+            TextField("Search: exchange, earn, Aave…", text: $text)
+                .font(Theme.Text.m)
+                .autocorrectionDisabled()
+                .focused($focused)
+                .accessibilityLabel("Search apps")
+        }
+        .padding(.horizontal, 18)
+        .frame(minHeight: 60)
+        .background(Theme.surface, in: .capsule)
+        .overlay(Capsule().strokeBorder(focused ? Theme.brand : .clear, lineWidth: 2))
+        .cardShadow()
     }
 }

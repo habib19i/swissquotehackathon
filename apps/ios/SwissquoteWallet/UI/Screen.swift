@@ -28,31 +28,30 @@ struct Screen<Content: View, Actions: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             BrandBar()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    if back != nil || isPresented {
-                        BackLink { if let back { back() } else { dismiss() } }
-                            .padding(.bottom, -12)
+            // As on the web, the actions follow the content: at the bottom of the screen when the content is
+            // short, after it when it is long, so they never cover it (nor does the keyboard).
+            GeometryReader { viewport in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        if back != nil || isPresented {
+                            BackLink { if let back { back() } else { dismiss() } }
+                                .padding(.bottom, -12)
+                        }
+                        content
+                        if Actions.self != EmptyView.self {
+                            Spacer(minLength: 4)
+                            VStack(spacing: 12) { actions }
+                        }
                     }
-                    content
+                    .frame(maxWidth: .infinity, minHeight: viewport.size.height - 20 - Theme.gutter, alignment: .topLeading)
+                    .padding(.horizontal, Theme.gutter)
+                    .padding(.top, 20)
+                    .padding(.bottom, Theme.gutter)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, Theme.gutter)
-                .padding(.top, 20)
-                .padding(.bottom, Theme.gutter)
+                .scrollDismissesKeyboard(.interactively)
             }
-            .scrollDismissesKeyboard(.interactively)
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                VStack(spacing: 0) {
-                    if Actions.self != EmptyView.self {
-                        VStack(spacing: 12) { actions }
-                            .padding(.horizontal, Theme.gutter)
-                            .padding(.top, 12)
-                            .padding(.bottom, tabs ? 12 : 8)
-                            .background(Theme.paper.opacity(0.94))
-                    }
-                    if tabs { TabBar() }
-                }
+                if tabs { TabBar() }
             }
         }
         .background(Theme.paper.ignoresSafeArea())
@@ -90,6 +89,7 @@ private struct BrandBar: View {
                     Text("Swissquote").font(.geist(18.9, .bold)).kerning(-0.47)
                     Text("My Wallet").font(.geist(14.4, .semibold)).foregroundStyle(Theme.brandText).kerning(0.14)
                 }
+                .fixedSize()
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Swissquote Wallet")
@@ -104,13 +104,21 @@ private struct BrandBar: View {
             }
             .buttonStyle(.pressable)
             .accessibilityLabel("Switch between light and dark mode")
-            Button("Hackathon prototype") { openDemoPanel() }
+            Button { openDemoPanel() } label: {
+                // In full where there is room; "Prototype" on narrow phones, so it always says so.
+                ViewThatFits(in: .horizontal) {
+                    Text("Hackathon prototype")
+                    Text("Prototype")
+                }
                 .font(.geist(13.5, .semibold))
                 .foregroundStyle(Theme.inkSoft)
                 .lineLimit(1)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 5)
                 .background(Theme.surface, in: .capsule)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Hackathon prototype")
                 .accessibilityHint("Opens the demo panel")
         }
         .padding(.horizontal, Theme.gutter)
@@ -202,6 +210,8 @@ struct PrimaryButtonStyle: ButtonStyle {
         configuration.label
             .font(.geist(18, .bold))
             .labelStyle(ButtonLabelStyle())
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
             .frame(maxWidth: .infinity, minHeight: 60)
             .padding(.horizontal, 24)
             .foregroundStyle(Theme.onBrand)
@@ -220,6 +230,8 @@ struct SecondaryButtonStyle: ButtonStyle {
         configuration.label
             .font(.geist(18, .bold))
             .labelStyle(ButtonLabelStyle())
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
             .frame(maxWidth: .infinity, minHeight: 60)
             .padding(.horizontal, 24)
             .foregroundStyle(Theme.ink)
@@ -291,4 +303,24 @@ struct FaceIdLabel: View {
             Text(text)
         }
     }
+}
+
+/// A quiet button inside a row ("Remove", an amount to change): underlined text, as wide as its text.
+struct InlineQuietButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var enabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.geist(18, .medium))
+            .underline()
+            .monospacedDigit()
+            .frame(minHeight: 48)
+            .foregroundStyle(configuration.isPressed ? Theme.brandText : Theme.ink)
+            .opacity(enabled ? 1 : 0.45)
+            .fixedSize()
+    }
+}
+
+extension ButtonStyle where Self == InlineQuietButtonStyle {
+    static var quietInline: InlineQuietButtonStyle { InlineQuietButtonStyle() }
 }

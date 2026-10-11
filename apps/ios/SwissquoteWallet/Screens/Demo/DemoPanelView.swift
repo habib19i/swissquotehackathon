@@ -24,7 +24,7 @@ struct DemoPanelView: View {
                 Text("Demo panel").titleStyle()
                 MockTag(text: "Demo")
             }
-            VStack(spacing: 12) {
+            RowsGroup {
                 DemoRow(title: "Swissquote offline",
                         detail: "Stops Swissquote’s co-signer. Pocket payments still work; larger moves use your recovery key and the independent safe-keeper.") {
                     Button(offline == true ? "Bring back" : "Switch off") { Task { await toggleOffline() } }
@@ -33,27 +33,23 @@ struct DemoPanelView: View {
                 if session.profile != nil {
                     DemoRow(title: "Attacker mode", detail: "A thief holds the unlocked phone and the client’s email. Watch what fails.") {
                         NavigationLink("Start", value: Route.attacker)
-                            .font(.system(size: 18, weight: .semibold)).padding(.horizontal, 16).frame(minHeight: 48)
-                            .background(Theme.surfaceAlt, in: .rect(cornerRadius: Theme.radiusControl))
+                            .buttonStyle(.secondary).fixedSize()
                     }
                     DemoRow(title: "Plan", detail: "Premium or Standard: who pays the network fees.") {
                         NavigationLink("Change", value: Route.settings)
-                            .font(.system(size: 18, weight: .semibold)).padding(.horizontal, 16).frame(minHeight: 48)
-                            .background(Theme.surfaceAlt, in: .rect(cornerRadius: Theme.radiusControl))
+                            .buttonStyle(.secondary).fixedSize()
                     }
                 }
                 DemoRow(title: "The client’s other device",
                         detail: "Swissquote e-banking, where alerts arrive and changes can be cancelled.") {
                     Link("Open", destination: AppConfig.webURL.appending(path: "e-banking"))
-                        .font(.system(size: 18, weight: .semibold)).padding(.horizontal, 16).frame(minHeight: 48)
-                        .background(Theme.surfaceAlt, in: .rect(cornerRadius: Theme.radiusControl))
+                        .buttonStyle(.secondary).fixedSize()
                 }
                 if session.profile == nil {
                     // The check opens a test safe and forgets it: only offered when this phone holds no safe.
                     DemoRow(title: "Wallet core check", detail: "Runs the wallet core’s end-to-end check on this phone (step 2 of the iOS plan).") {
                         NavigationLink("Run") { BridgeCheckView() }
-                            .font(.system(size: 18, weight: .semibold)).padding(.horizontal, 16).frame(minHeight: 48)
-                            .background(Theme.surfaceAlt, in: .rect(cornerRadius: Theme.radiusControl))
+                            .buttonStyle(.secondary).fixedSize()
                     }
                 }
             }
@@ -77,10 +73,10 @@ struct DemoPanelView: View {
     /// The Mac's services: localhost in the Simulator, the Mac's https tunnel on an iPhone.
     private var serverSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Swissquote services").font(.system(size: 18, weight: .semibold))
+            Text("Swissquote services").font(.geist(18, .semibold))
             Text("The Mac running pnpm dev. On an iPhone, its https tunnel address.").smallMuted()
             TextField("https://….trycloudflare.com", text: $server)
-                .font(.system(size: 16, design: .monospaced))
+                .font(.geist(15.75)).foregroundStyle(Theme.inkSoft)
                 .keyboardType(.URL)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -93,8 +89,7 @@ struct DemoPanelView: View {
             }
             if let serverStatus { Notice(serverStatus.ok ? .ok : .error, serverStatus.text) }
         }
-        .padding(16)
-        .background(Theme.surface, in: .rect(cornerRadius: Theme.radiusCard))
+        .card(padding: 16)
     }
 
     private func useServer(_ text: String?) async {
@@ -158,15 +153,6 @@ private struct DemoRow<Action: View>: View {
     @ViewBuilder let action: Action
 
     var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.system(size: 18, weight: .semibold))
-                Text(detail).smallMuted()
-            }
-            Spacer(minLength: 8)
-            action
-        }
-        .padding(16)
-        .background(Theme.surface, in: .rect(cornerRadius: Theme.radiusCard))
+        GroupRow(title: title, subtitle: detail) { action }
     }
 }

@@ -44,7 +44,7 @@ private struct AppIdentity: View {
                     .frame(width: 48, height: 48).clipShape(.rect(cornerRadius: 12))
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(name).font(.system(size: 18, weight: .semibold))
+                Text(name).font(.geist(18, .semibold))
                 Text(url.replacing(/^https?:\/\//, with: "")).smallMuted()
                 if validation == .valid { Text("Website verified by WalletConnect").font(Theme.Text.s).foregroundStyle(Theme.protect) }
                 if validation == .invalid {
@@ -142,8 +142,8 @@ private struct RequestCard: View {
             if let review, !review.isNull {
                 let blocked = review["verdict"].string == "BLOCKED"
                 Notice(blocked ? .error : .warn) {
-                    Label(blocked ? "Stopped by Swissquote" : "Checked by Swissquote", systemImage: "checkmark.shield.fill")
-                        .font(.system(size: 18, weight: .semibold))
+                    IconLabel(blocked ? "Stopped by Swissquote" : "Checked by Swissquote", icon: "shield")
+                        .font(.geist(18, .semibold))
                     ForEach(review["reasons"].array.compactMap(\.string), id: \.self) { Text($0) }
                     if let chf = review["valueChf"].number, chf > 0 { Text("About \(Format.chf(chf))").font(Theme.Text.s) }
                 }
@@ -153,7 +153,7 @@ private struct RequestCard: View {
                 if !confirmed {
                     Button("Yes, I want to do this") { confirmed = true }.buttonStyle(.primary)
                 } else {
-                    Button { Task { await confirm() } } label: { Label(busy ? "Sending…" : "Confirm with Face ID", systemImage: "faceid") }
+                    Button { Task { await confirm() } } label: { FaceIdLabel(busy ? "Sending…" : "Confirm with Face ID") }
                         .buttonStyle(.primary).disabled(busy)
                 }
             }

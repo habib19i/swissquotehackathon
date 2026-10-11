@@ -43,22 +43,14 @@ private struct AppSlip: View {
 
     var body: some View {
         let (give, get) = describe(use, usdcAddress: usdcAddress)
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("With \(app.name)").foregroundStyle(Theme.inkSoft)
-                Text(give).font(Theme.Text.xl).monospacedDigit()
-            }
-            Divider()
-            VStack(spacing: 10) {
-                DetailRow(label: "You get", value: get)
-                DetailRow(label: "Goes to", value: "Your own safe")
-                DetailRow(label: "Network fee", value: "Paid by Swissquote")
-            }
+        Slip {
+            Text("With \(app.name)").foregroundStyle(Theme.inkSoft)
+            Text(give).font(Theme.Text.amount).monospacedDigit().lineLimit(1).minimumScaleFactor(0.5)
+        } details: {
+            DetailRow(label: "You get", value: get)
+            DetailRow(label: "Goes to", value: "Your own safe")
+            DetailRow(label: "Network fee", value: "Paid by Swissquote")
         }
-        .padding(20)
-        .background(Theme.surface, in: .rect(cornerRadius: Theme.radiusPanel))
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Operation details")
         .task { usdcAddress = try? await core.call("constants")["usdc"].string }
     }
 }
@@ -100,7 +92,7 @@ struct AppConfirmView: View {
                     Button("Yes, I want to do this") { confirmed = true }.buttonStyle(.primary)
                 } else {
                     Button { Task { await confirm() } } label: {
-                        Label(sending ? "Sending…" : "Confirm with Face ID", systemImage: "faceid")
+                        FaceIdLabel(sending ? "Sending…" : "Confirm with Face ID")
                     }
                     .buttonStyle(.primary).disabled(sending)
                 }

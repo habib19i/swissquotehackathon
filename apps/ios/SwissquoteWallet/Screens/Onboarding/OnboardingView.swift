@@ -52,7 +52,7 @@ struct OnboardingView: View {
                 Text("Face ID will be the only key you need. No password, nothing to write down.").leadStyle()
                 if let error { Notice(.error, error) }
             } actions: {
-                Button { Task { await enableFaceId() } } label: { Label("Use Face ID", systemImage: "faceid") }
+                Button { Task { await enableFaceId() } } label: { FaceIdLabel("Use Face ID") }
                     .buttonStyle(.primary)
             }
 
@@ -94,19 +94,17 @@ struct OnboardingView: View {
             Screen {
                 Text("Your safe is ready").titleStyle()
                 KeyHolders(ready: [true, true, true])
-                VStack(alignment: .leading, spacing: 12) {
+                RowsGroup {
                     ForEach([
                         "You hold one piece, on this phone, unlocked only with Face ID.",
                         "Swissquote holds one piece, to check your larger payments.",
                         "An independent safe-keeper holds one piece, to help you if you lose your phone.",
                         "The same key holds your bitcoin and your USDC.",
                     ], id: \.self) { line in
-                        Text(line).font(Theme.Text.m).frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(16).background(Theme.surface, in: .rect(cornerRadius: Theme.radiusCard))
+                        Text(line).font(Theme.Text.m).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 18)
                     }
                 }
-                Label("Swissquote has verified that this safe is yours", systemImage: "checkmark.circle.fill")
-                    .font(.system(size: 18, weight: .semibold)).foregroundStyle(Theme.protect)
+                ProtectedBySwissquote(text: "Swissquote has verified that this safe is yours")
                 Text("Any two pieces together can move your money. Swissquote alone never can.").smallMuted()
                 if !FaceIdKey.enforcedBySecureEnclave {
                     Text("Prototype note: the iOS Simulator cannot tie your piece to Face ID inside the Secure Enclave, so the app asks Face ID before each use. On an iPhone the Secure Enclave enforces it.")
@@ -193,7 +191,7 @@ struct PlanChoice: View {
             ForEach(Self.plans, id: \.id) { option in
                 ChoiceCard(selected: plan == option.id, action: { plan = option.id }) {
                     HStack {
-                        Text(option.name).font(.system(size: 20, weight: .bold))
+                        Text(option.name).rowTitle()
                         Spacer()
                         Text(option.price).monospacedDigit()
                         if option.id == "premium" { MockTag() }
