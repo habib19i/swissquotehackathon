@@ -13,6 +13,8 @@ import type { Address, Hex } from "viem";
 import { PROTOCOLS, USDC, aaveEthRate, minimumOut, quoteSwap, type AppRequest } from "@sqw/ethereum";
 import type { DklsKeyshare } from "@sqw/mpc";
 import {
+  appById,
+  searchApps,
   mergeAnswer,
   resolveDraft,
   type AssistantLanguage,
@@ -198,6 +200,9 @@ export const methods: Record<string, Method> = {
   requestChange: async (change: RulebookChange) => requestChange(await profile(), change),
   loadActivity: async () => loadActivity(await profile()),
 
+  // DeFi apps (Explore): the curated catalogue, as on the web.
+  "apps.search": (query = "") => searchApps(query),
+  "apps.byId": (id: string) => appById(id) ?? null,
   // DeFi apps (Explore).
   loadPositions: async () => loadPositions(await profile()),
   appsAvailable: async () => appsAvailable(await profile()),
