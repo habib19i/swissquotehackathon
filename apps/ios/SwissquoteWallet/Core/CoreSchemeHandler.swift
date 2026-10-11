@@ -4,16 +4,18 @@ import WebKit
 /// Serves `sqw://core/…` to the hidden web view: the wallet core's files from the app bundle, and the
 /// services under the same origin, as the Next.js rewrites do for the web app (no CORS, one address):
 ///
-/// - `/svc/cosigner/*` → Swissquote co-signer (:4001)
-/// - `/svc/recovery/*` → recovery provider (:4002)
-/// - `/api/*`          → Next.js server (:3000), e.g. `/api/price`, `/api/assistant`
+/// - `/svc/cosigner/*` → Swissquote co-signer, `/svc/recovery/*` → recovery provider (both through the
+///   Next.js server's forwarding), `/api/*` → the Next.js server (`/api/price`, `/api/assistant`)
 /// - anything else      → `core/` in the app bundle (index.html, wallet-core.js, dkls.wasm)
 final class CoreSchemeHandler: NSObject, WKURLSchemeHandler {
-    private static let routes: [(prefix: String, target: URL)] = [
-        ("/svc/cosigner/", AppConfig.cosignerURL),
-        ("/svc/recovery/", AppConfig.recoveryURL),
-        ("/api/", AppConfig.webURL.appending(path: "api/")),
-    ]
+    /// Read at each request: the server address can change in the Demo panel.
+    private static var routes: [(prefix: String, target: URL)] {
+        [
+            ("/svc/cosigner/", AppConfig.cosignerURL),
+            ("/svc/recovery/", AppConfig.recoveryURL),
+            ("/api/", AppConfig.webURL.appending(path: "api/")),
+        ]
+    }
 
     private static let contentTypes = [
         "html": "text/html; charset=utf-8",
@@ -77,7 +79,7 @@ final class CoreSchemeHandler: NSObject, WKURLSchemeHandler {
                 }
                 respond(task, status: http?.statusCode ?? 502, headers: headers, body: data)
             } catch {
-                let message = #"{"error":"The service at \#(base.host() ?? "?"):\#(base.port ?? 0) is not reachable."}"#
+                let message = #"{"error":"The Swissquote services at \#(AppConfig.serverName) are not reachable."}"#
                 respond(task, status: 502, headers: ["Content-Type": "application/json"], body: Data(message.utf8))
             }
         }

@@ -4,7 +4,11 @@ import UIKit
 /// Colour tokens of the web app (apps/web/app/globals.css, measured from swissquote.com), light and dark.
 /// Every pair used together is WCAG AA in both (replica/design/contrast.mjs).
 nonisolated enum Theme {
-    static let paper = color(light: 0xeff3fa, dark: 0x121417)
+    /// The page background, as chosen in Settings (Swissquote's soft blue-grey by default).
+    static var paper: Color {
+        let choice = UserDefaults.standard.string(forKey: Appearance.paperKey).flatMap(Appearance.Paper.init(rawValue:)) ?? .swissquote
+        return choice.color
+    }
     static let surface = color(light: 0xffffff, dark: 0x1c1f24)
     static let surfaceAlt = color(light: 0xf3f4f6, dark: 0x262a30)
     static let ink = color(light: 0x000000, dark: 0xf3f4f6)
@@ -38,7 +42,7 @@ nonisolated enum Theme {
         static let amount = Font.system(size: 48, weight: .bold)
     }
 
-    private static func color(light: UInt32, dark: UInt32) -> Color {
+    static func color(light: UInt32, dark: UInt32) -> Color {
         Color(UIColor { $0.userInterfaceStyle == .dark ? rgb(dark) : rgb(light) })
     }
 

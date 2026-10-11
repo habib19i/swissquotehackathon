@@ -7,6 +7,7 @@ struct SwissquoteWalletApp: App {
     @State private var session: Session
 
     init() {
+        AppConfig.rememberLaunchArgument()
         // UI tests start from a fresh phone: no login, no safe, no Face ID key.
         if ProcessInfo.processInfo.arguments.contains("-freshPhone") {
             Storage().deleteAll()

@@ -2,13 +2,15 @@ import Foundation
 
 /// Any JSON the wallet core returns or takes, for calls without a dedicated Swift type.
 /// Amounts cross as decimal strings (bigints), so numbers here are only small values (prices, counts).
-nonisolated enum JSONValue: Codable, Equatable, Sendable {
+nonisolated enum JSONValue: Codable, Equatable, Sendable, ExpressibleByStringLiteral {
     case null
     case bool(Bool)
     case number(Double)
     case string(String)
     case array([JSONValue])
     case object([String: JSONValue])
+
+    init(stringLiteral value: String) { self = .string(value) }
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.singleValueContainer()

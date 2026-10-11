@@ -49,7 +49,7 @@ struct BridgeCheckView: View {
     private var status: String {
         switch core.state {
         case .loading: "Loading the wallet core…"
-        case .ready(let methods): "Wallet core loaded: \(methods.count) methods. Services at \(AppConfig.serverHost)."
+        case .ready(let methods): "Wallet core loaded: \(methods.count) methods. Services at \(AppConfig.serverName)."
         case .failed(let reason): reason
         }
     }

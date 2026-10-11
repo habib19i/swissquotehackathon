@@ -1,7 +1,7 @@
 #!/bin/sh
 # Runs the UI tests in the Simulator with Face ID enrolled and every Face ID prompt answered with a
 # matching face. Needs `pnpm dev` running and the core built (pnpm --filter @sqw/ios-core build).
-#   scripts/ui-test.sh ["iPhone 17"] [-only-testing:SwissquoteWalletUITests/WalletUITests/testName]
+#   [SQW_SERVER_URL=https://….trycloudflare.com] scripts/ui-test.sh ["iPhone 17"] [-only-testing:…/testName]
 set -e
 cd "$(dirname "$0")/.."
 SIM="${1:-iPhone 17}"
@@ -13,6 +13,6 @@ xcrun simctl spawn "$SIM" notifyutil -p com.apple.BiometricKit.enrollmentChanged
 ( while true; do sleep 1; xcrun simctl spawn "$SIM" notifyutil -p com.apple.BiometricKit_Sim.pearl.match >/dev/null 2>&1; done ) &
 FACE=$!
 trap 'kill $FACE 2>/dev/null' EXIT
-xcodebuild test -project SwissquoteWallet.xcodeproj -scheme SwissquoteWallet \
+TEST_RUNNER_SQW_SERVER_URL="${SQW_SERVER_URL:-}" xcodebuild test -project SwissquoteWallet.xcodeproj -scheme SwissquoteWallet \
   -destination "platform=iOS Simulator,name=$SIM" -derivedDataPath build/DerivedData \
   -resultBundlePath "build/UITests-$(date +%Y%m%d-%H%M%S).xcresult" "$@"

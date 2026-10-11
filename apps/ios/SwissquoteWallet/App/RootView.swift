@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Log in, open a safe, or the app itself, as the web app's `RequireWallet` decides.
 struct RootView: View {
+    @AppStorage(Appearance.themeKey) private var theme = Appearance.Theme.system.rawValue
     @Environment(Session.self) private var session
     @Environment(WalletCore.self) private var core
     @State private var navigation = Navigation()
@@ -23,6 +24,7 @@ struct RootView: View {
             }
         }
         .environment(navigation)
+        .preferredColorScheme(Appearance.Theme(rawValue: theme)?.colorScheme)
         .environment(\.openDemoPanel) {
             if session.profile != nil {
                 navigation.tab = .home
@@ -55,13 +57,13 @@ private struct MainTabs: View {
                 NavigationStack { NotYetInApp(title: "Explore", step: 5).withRoutes(profile: profile) }
             }
             Tab("Assistant", systemImage: "bubble.left.and.text.bubble.right", value: .assistant) {
-                NavigationStack { NotYetInApp(title: "Assistant", step: 5).withRoutes(profile: profile) }
+                NavigationStack { AssistantView(profile: profile).withRoutes(profile: profile) }
             }
             Tab("Send", systemImage: "arrow.up.right", value: .send) {
                 NavigationStack { SendView(profile: profile).withRoutes(profile: profile) }
             }
             Tab("Rules", systemImage: "list.bullet.rectangle", value: .rules) {
-                NavigationStack { NotYetInApp(title: "Contacts and rules", step: 4).withRoutes(profile: profile) }
+                NavigationStack { RulesView(profile: profile).withRoutes(profile: profile) }
             }
         }
         .tint(Theme.brandText)
@@ -76,9 +78,10 @@ private extension View {
             case .demo: DemoPanelView()
             case .receive: if let profile { ReceiveView(profile: profile) }
             case .recoveryKey: RecoveryKeyAgain()
-            case .activity: NotYetInApp(title: "Activity", step: 4)
-            case .alerts: NotYetInApp(title: "Alerts", step: 4)
-            case .settings: NotYetInApp(title: "Plan and settings", step: 4)
+            case .activity: ActivityView()
+            case .alerts: if let profile { AlertsView(profile: profile) }
+            case .settings: if let profile { SettingsView(profile: profile) }
+            case .attacker: if let profile { AttackerView(profile: profile) }
             }
         }
     }

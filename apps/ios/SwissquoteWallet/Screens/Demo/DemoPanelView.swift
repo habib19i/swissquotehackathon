@@ -11,6 +11,8 @@ struct DemoPanelView: View {
     @State private var recoverable: Bool?
     @State private var confirmLoss = false
     @State private var error: String?
+    @State private var server = AppConfig.serverURL.absoluteString
+    @State private var serverStatus: (ok: Bool, text: String)?
 
     /// The demo timers the services run with (.env: LOOSENING_DELAY_SECONDS, RECOVERY_WAIT_SECONDS).
     private static let looseningDelaySeconds = 30
@@ -28,6 +30,18 @@ struct DemoPanelView: View {
                     Button(offline == true ? "Bring back" : "Switch off") { Task { await toggleOffline() } }
                         .buttonStyle(.secondary).fixedSize().disabled(offline == nil)
                 }
+                if session.profile != nil {
+                    DemoRow(title: "Attacker mode", detail: "A thief holds the unlocked phone and the client’s email. Watch what fails.") {
+                        NavigationLink("Start", value: Route.attacker)
+                            .font(.system(size: 18, weight: .semibold)).padding(.horizontal, 16).frame(minHeight: 48)
+                            .background(Theme.surfaceAlt, in: .rect(cornerRadius: Theme.radiusControl))
+                    }
+                    DemoRow(title: "Plan", detail: "Premium or Standard: who pays the network fees.") {
+                        NavigationLink("Change", value: Route.settings)
+                            .font(.system(size: 18, weight: .semibold)).padding(.horizontal, 16).frame(minHeight: 48)
+                            .background(Theme.surfaceAlt, in: .rect(cornerRadius: Theme.radiusControl))
+                    }
+                }
                 DemoRow(title: "The client’s other device",
                         detail: "Swissquote e-banking, where alerts arrive and changes can be cancelled.") {
                     Link("Open", destination: AppConfig.webURL.appending(path: "e-banking"))
@@ -43,13 +57,12 @@ struct DemoPanelView: View {
                     }
                 }
             }
+            serverSection
             Notice {
                 Text("Demo timers").bold()
                 Text("New contacts and higher limits wait \(Self.looseningDelaySeconds) seconds instead of 24 hours. A recovery waits \(Self.recoveryWaitSeconds) seconds instead of 48 hours.")
                     .font(Theme.Text.s).foregroundStyle(Theme.inkSoft)
             }
-            Text("Attacker mode and the plan switch come with the next build steps; use the web app’s demo panel for them meanwhile.")
-                .smallMuted()
             if session.profile != nil { losePhone }
             if let error { Notice(.error, error) }
         }
@@ -59,6 +72,46 @@ struct DemoPanelView: View {
                 recoverable = (try? await core.call("hasRecoveryKey", walletId))?.bool == true
             }
         }
+    }
+
+    /// The Mac's services: localhost in the Simulator, the Mac's https tunnel on an iPhone.
+    private var serverSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Swissquote services").font(.system(size: 18, weight: .semibold))
+            Text("The Mac running pnpm dev. On an iPhone, its https tunnel address.").smallMuted()
+            TextField("https://….trycloudflare.com", text: $server)
+                .font(.system(size: 16, design: .monospaced))
+                .keyboardType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .padding(12)
+                .background(Theme.surfaceAlt, in: .rect(cornerRadius: Theme.radiusControl))
+                .accessibilityLabel("Server address")
+            HStack(spacing: 8) {
+                Button("Use this address") { Task { await useServer(server) } }.buttonStyle(.secondary)
+                Button("Built-in") { Task { await useServer(nil) } }.buttonStyle(.quiet).fixedSize()
+            }
+            if let serverStatus { Notice(serverStatus.ok ? .ok : .error, serverStatus.text) }
+        }
+        .padding(16)
+        .background(Theme.surface, in: .rect(cornerRadius: Theme.radiusCard))
+    }
+
+    private func useServer(_ text: String?) async {
+        if let text, AppConfig.validURL(text) == nil {
+            serverStatus = (false, "This is not a web address. It starts with https://")
+            return
+        }
+        AppConfig.setServerURL(text)
+        server = AppConfig.serverURL.absoluteString
+        do {
+            let health = try await core.call("cosigner.health")
+            offline = health["offline"].bool
+            serverStatus = (true, "Swissquote answers at \(AppConfig.serverName).")
+        } catch {
+            serverStatus = (false, "No answer from \(AppConfig.serverName): \(error.localizedDescription)")
+        }
+        await session.reload()
     }
 
     private var losePhone: some View {

@@ -164,6 +164,10 @@ nonisolated struct CoreError: Error, LocalizedError, Decodable, Equatable {
     var pocketMax: String?
     var savingsMax: String?
     var available: String?
+    /// OperationFailedError: the operation Base received but refused.
+    var sent: JSONValue?
+
+    var sentTxHash: String? { sent?["txHash"].string }
 
     init(name: String, message: String) {
         self.name = name

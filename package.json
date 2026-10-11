@@ -9,6 +9,7 @@
   "packageManager": "pnpm@10.18.0",
   "scripts": {
     "dev": "concurrently -n web,cosigner,recovery -c blue,green,magenta \"pnpm --filter @sqw/web dev\" \"pnpm --filter @sqw/cosigner dev\" \"pnpm --filter @sqw/recovery-provider dev\"",
+    "phone": "pnpm --filter @sqw/web build && concurrently -n web,cosigner,recovery -c blue,green,magenta \"pnpm --filter @sqw/web start\" \"pnpm --filter @sqw/cosigner dev\" \"pnpm --filter @sqw/recovery-provider dev\"",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r --filter \"!@sqw/contracts\" test",

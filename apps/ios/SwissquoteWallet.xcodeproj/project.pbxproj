@@ -216,7 +216,10 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "SQ Wallet";
+				INFOPLIST_KEY_NSCameraUsageDescription = "The camera reads an app's WalletConnect QR code.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Face ID is the key to your safe: it confirms every payment.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Speak your request to the assistant instead of typing it.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "The assistant turns what you say into text. It never sends anything without your Face ID.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
@@ -228,7 +231,7 @@
 				MARKETING_VERSION = 0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = ch.swissquote.wallet.prototype;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SQW_SERVER_HOST = localhost;
+				SQW_SERVER_URL = "http://localhost:3000";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -249,7 +252,10 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "SQ Wallet";
+				INFOPLIST_KEY_NSCameraUsageDescription = "The camera reads an app's WalletConnect QR code.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Face ID is the key to your safe: it confirms every payment.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Speak your request to the assistant instead of typing it.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "The assistant turns what you say into text. It never sends anything without your Face ID.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
@@ -261,7 +267,7 @@
 				MARKETING_VERSION = 0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = ch.swissquote.wallet.prototype;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SQW_SERVER_HOST = localhost;
+				SQW_SERVER_URL = "http://localhost:3000";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

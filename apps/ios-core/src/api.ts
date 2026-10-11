@@ -51,6 +51,7 @@ import { appsAvailable, loadPositions, prepareAppUse, sendAppUse, type AppUse } 
 import { loadUsdcBalance, prepareUsdcPayment, sendUsdcPayment, updateRulesOnBase, usdcAccount, baseReader, type UsdcPayment } from "../../web/lib/wallet-usdc";
 import { prepareDappTransaction, sendDappTransaction, transactionOf } from "../../web/lib/walletconnect";
 import type { EthPrepared } from "@sqw/shared";
+import { assistantSetup, assistantText, assistantTurn, type TurnInput } from "./assistant";
 import { emit } from "./bridge";
 import type { WalletPasskey } from "./native/passkey";
 
@@ -215,6 +216,17 @@ export const methods: Record<string, Method> = {
   resolveDraft: (draft: PaymentDraft, said: string[], contacts: Contact[], language: AssistantLanguage) =>
     resolveDraft(draft, said, contacts, language),
   mergeAnswer: (draft: PaymentDraft, answer: string, contacts: Contact[]) => mergeAnswer(draft, answer, contacts),
+  /** The chat screen: setup, fixed texts, and one turn (the web page's submit), with prepared results kept here. */
+  "assistant.setup": (firstName: string, language?: AssistantLanguage) => assistantSetup(firstName, language),
+  "assistant.text": (language: AssistantLanguage, key: string, args?: unknown[]) => assistantText(language, key, args),
+  "assistant.turn": async (input: TurnInput) => {
+    const turn = await assistantTurn(await profile(), input);
+    return {
+      ...turn,
+      payment: turn.payment && { asset: turn.payment.asset, payment: prepared(turn.payment.payment) },
+      appUse: turn.appUse && { app: turn.appUse.app, use: prepared(turn.appUse.use) },
+    };
+  },
   /** A resolved payment: `payment.handle` goes to sendPayment (BTC) or sendUsdcPayment (USDC). */
   preparePlanned: async (ready: Extract<Resolution, { kind: "ready" }>, prices: { btcChf: number; usdcChf: number }) => {
     const planned = await preparePlanned(await profile(), ready, prices);

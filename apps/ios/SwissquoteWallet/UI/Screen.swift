@@ -5,6 +5,8 @@ import SwiftUI
 struct Screen<Content: View, Actions: View>: View {
     private let content: Content
     private let actions: Actions
+    /// Read here so every screen redraws when the background colour changes in Settings.
+    @AppStorage(Appearance.paperKey) private var paper = Appearance.Paper.swissquote.rawValue
 
     init(@ViewBuilder content: () -> Content, @ViewBuilder actions: () -> Actions) {
         self.content = content()

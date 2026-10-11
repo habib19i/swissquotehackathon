@@ -2,14 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- The services on the Mac are plain http on the local network (co-signer, recovery provider, Next.js). -->
+	<!-- In the Simulator the services on the Mac are plain http on localhost. -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
-	<!-- The Mac's address for the services: localhost in the Simulator; set it in the scheme for a device. -->
-	<key>SQWServerHost</key>
-	<string>$(SQW_SERVER_HOST)</string>
+	<!-- The Next.js server on the Mac (build setting SQW_SERVER_URL); the app's Demo panel can change it. -->
+	<key>SQWServerURL</key>
+	<string>$(SQW_SERVER_URL)</string>
 </dict>
 </plist>

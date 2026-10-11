@@ -50,6 +50,7 @@ struct HomeView: View {
             notices
             Text("Your pockets").font(Theme.Text.l).padding(.top, 8)
             pockets
+            AskBox()
             pocketActions
             keyCard
             Button("Demo panel") { navigation.homePath.append(Route.demo) }.buttonStyle(.quiet)
@@ -336,6 +337,45 @@ struct HomeView: View {
                 self.error = error.localizedDescription
             }
         }
+    }
+}
+
+/// The assistant, front and centre: type a request; the Assistant tab takes it from there and ends on a
+/// card the client accepts with Face ID.
+private struct AskBox: View {
+    @Environment(Navigation.self) private var navigation
+    @State private var text = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("What would you like to do today?").font(.system(size: 20, weight: .bold))
+            HStack(spacing: 8) {
+                TextField("Send 20 francs to Léo", text: $text)
+                    .font(Theme.Text.m)
+                    .padding(14)
+                    .background(Theme.surfaceAlt, in: .rect(cornerRadius: Theme.radiusControl))
+                    .submitLabel(.send)
+                    .onSubmit(send)
+                    .accessibilityLabel("Ask the assistant")
+                Button(action: send) {
+                    Image(systemName: "arrow.up").font(.system(size: 18, weight: .bold))
+                        .frame(width: 48, height: 48).background(Theme.brand, in: .circle).foregroundStyle(Theme.onBrand)
+                }
+                .disabled(text.trimmingCharacters(in: .whitespaces).isEmpty)
+                .accessibilityLabel("Ask the assistant")
+            }
+            Text("The assistant only prepares the payment. You confirm it with Face ID.").smallMuted()
+        }
+        .padding(20)
+        .background(Theme.surface, in: .rect(cornerRadius: Theme.radiusCard))
+    }
+
+    private func send() {
+        let request = text.trimmingCharacters(in: .whitespaces)
+        guard !request.isEmpty else { return }
+        navigation.assistantRequest = request
+        navigation.tab = .assistant
+        text = ""
     }
 }
 

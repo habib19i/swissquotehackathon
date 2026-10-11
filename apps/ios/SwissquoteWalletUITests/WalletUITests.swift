@@ -11,6 +11,10 @@ final class WalletUITests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments = ["-freshPhone"]
+        // scripts/ui-test.sh passes SQW_SERVER_URL to run against the Mac's tunnel instead of localhost.
+        if let server = ProcessInfo.processInfo.environment["SQW_SERVER_URL"], !server.isEmpty {
+            app.launchArguments += ["-SQWServerURL", server]
+        }
         app.launch()
     }
 
@@ -63,6 +67,73 @@ final class WalletUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Your pockets"].waitForExistence(timeout: 30))
         tap("Receive")
         XCTAssertTrue(app.staticTexts[savingsAddress].waitForExistence(timeout: 10), "The recovered safe has another Savings address")
+    }
+
+    /// Step 4 without test coins: the rulebook (a new contact waits and can be cancelled), Attacker mode
+    /// (Act 3: the CHF 5,000 payment and the recovery are refused), Alerts, Activity and the plan.
+    func testRulesAttackerAndAlerts() {
+        openSafe(clientNumber: "CH-4417-\(Int.random(in: 3000...9999))")
+
+        // Rules: add Marc. Swissquote checks him first, then Face ID, then the waiting period.
+        app.tabBars.buttons["Rules"].tap()
+        XCTAssertTrue(app.staticTexts["Contacts and rules"].waitForExistence(timeout: 30))
+        tap("Add a contact")
+        app.textFields["Name"].tap()
+        app.textFields["Name"].typeText("Marc")
+        app.textFields["Their Bitcoin address"].tap()
+        app.textFields["Their Bitcoin address"].typeText("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx")
+        tap("Check with Swissquote")
+        XCTAssertTrue(text(containing: "Checked by Swissquote").waitForExistence(timeout: 30), app.debugDescription)
+        tap("Add with Face ID")
+        XCTAssertTrue(text(containing: "Adding Marc").waitForExistence(timeout: 60), app.debugDescription)
+        XCTAssertTrue(text(containing: "Takes effect in").exists)
+        attach("rules-pending-contact")
+        tap("Cancel")
+        XCTAssertTrue(text(containing: "Adding Marc").waitForNonExistence(timeout: 30))
+
+        // Tightening is instant: freeze, then unfreezing waits.
+        app.swipeUp()
+        tap("Freeze my safe")
+        XCTAssertTrue(text(containing: "your safe is frozen").waitForExistence(timeout: 60), app.debugDescription)
+        app.swipeUp()
+        tap("Unfreeze my safe")
+        XCTAssertTrue(text(containing: "unfreezes after the waiting period").waitForExistence(timeout: 60), app.debugDescription)
+
+        // Alerts: the Watcher reported the requests.
+        app.tabBars.buttons["Home"].tap()
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Alerts'")).firstMatch.tap()
+        XCTAssertTrue(app.staticTexts["Alerts"].waitForExistence(timeout: 10))
+        XCTAssertTrue(text(containing: "Unfreeze the safe").waitForExistence(timeout: 30), app.debugDescription)
+        tap("Cancel this change")
+        attach("alerts")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        // Activity: a new safe has none yet.
+        tap("Activity")
+        XCTAssertTrue(text(containing: "Nothing yet").waitForExistence(timeout: 60), app.debugDescription)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        // Plan: Standard, then back to Premium.
+        tap("Plan and settings")
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Standard'")).firstMatch.tap()
+        XCTAssertTrue(text(containing: "you now pay the network fee").waitForExistence(timeout: 30))
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Premium'")).firstMatch.tap()
+        XCTAssertTrue(text(containing: "Swissquote now pays your network fees").waitForExistence(timeout: 30))
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        // Act 3: Attacker mode.
+        tap("Demo panel")
+        tap("Start")
+        XCTAssertTrue(app.staticTexts["Attacker mode"].waitForExistence(timeout: 10))
+        app.buttons.matching(identifier: "Try it").element(boundBy: 0).tap()
+        XCTAssertTrue(app.staticTexts["Stopped"].waitForExistence(timeout: 60), app.debugDescription)
+        XCTAssertTrue(text(containing: "BLOCKED in bitcoin, BLOCKED in USDC").exists, app.debugDescription)
+        app.swipeUp()
+        app.buttons.matching(identifier: "Try it").element(boundBy: 2).tap()  // the recovery, after send's button is gone
+        let stoppedTwice = NSPredicate(format: "count == 2")
+        _ = XCTWaiter.wait(for: [expectation(for: stoppedTwice, evaluatedWith: app.staticTexts.matching(identifier: "Stopped"))], timeout: 60)
+        XCTAssertEqual(app.staticTexts.matching(identifier: "Stopped").count, 2, app.debugDescription)
+        attach("attacker")
     }
 
     /// Acts 1 and 2 (Bitcoin), 4: real payments on signet. Needs test bitcoin in Swissquote's demo account.
@@ -169,16 +240,28 @@ final class WalletUITests: XCTestCase {
     }
 
     /// The recovery-key web page (ASWebAuthenticationSession): its button, then the system passkey sheet.
+    /// Over a tunnel the page can show its button before its script has loaded, so the tap waits for the
+    /// page to finish loading and is repeated until the passkey sheet appears.
     private func useRecoveryKeyOnPage(_ label: String) {
         let button = app.webViews.buttons[label]
-        XCTAssertTrue(button.waitForExistence(timeout: 30), "The recovery key page did not open\n\(app.debugDescription)")
-        button.tap()
+        XCTAssertTrue(button.waitForExistence(timeout: 60), "The recovery key page did not open\n\(app.debugDescription)")
+        let loading = app.buttons.matching(identifier: "ReloadButton").matching(NSPredicate(format: "label == 'Stop'")).firstMatch
+        let loaded = NSPredicate(format: "exists == false")
+        _ = XCTWaiter.wait(for: [expectation(for: loaded, evaluatedWith: loading)], timeout: 60)
+        for _ in 0..<3 {
+            if button.exists && button.isEnabled { button.tap() }
+            if passkeyButton.waitForExistence(timeout: 10) { break }
+        }
         approvePasskey()
+    }
+
+    private var passkeyButton: XCUIElement {
+        springboard.buttons.matching(NSPredicate(format: "label IN {'Add Passkey', 'Continue', 'Sign In', 'Use Passkey'}")).firstMatch
     }
 
     /// The system passkey sheet (save or use the recovery passkey); Face ID is answered by the test script.
     private func approvePasskey() {
-        let button = springboard.buttons.matching(NSPredicate(format: "label IN {'Add Passkey', 'Continue', 'Sign In', 'Use Passkey'}")).firstMatch
+        let button = passkeyButton
         XCTAssertTrue(button.waitForExistence(timeout: 30), "No passkey sheet. App:\n\(app.debugDescription)")
         button.tap()
     }

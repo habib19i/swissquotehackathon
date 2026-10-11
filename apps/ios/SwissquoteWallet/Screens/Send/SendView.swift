@@ -26,7 +26,7 @@ struct SendView: View {
                 step = asset == "USDC" ? .usdc(contact) : .amount(contact)
             }
         case .usdc(let contact):
-            UsdcNotYet(contact: contact) { step = .contact }
+            UsdcSendView(profile: profile, contact: contact) { step = .contact }
         case .amount(let contact):
             AmountStep(contact: contact, onBack: { step = .contact }) { step = .confirm($0) }
         case .confirm(let payment):
@@ -146,21 +146,6 @@ private struct AssetStep: View {
     private var usdcAmount: String {
         guard case .success(let units) = usdc, let price = session.price else { return "…" }
         return Format.chf(Format.usdcChf(units, usdcChf: price.usdcChf))
-    }
-}
-
-/// USDC payments come with step 4 of docs/ios-plan.md. Until then this says so plainly.
-private struct UsdcNotYet: View {
-    let contact: Contact
-    let onBack: () -> Void
-
-    var body: some View {
-        Screen {
-            Text("USDC to \(contact.name)").titleStyle()
-            Notice(.warn, "USDC payments are not in the iOS app yet (next build step). Use the web app for USDC, or send bitcoin.")
-        } actions: {
-            Button("Choose someone else", action: onBack).buttonStyle(.secondary)
-        }
     }
 }
 
