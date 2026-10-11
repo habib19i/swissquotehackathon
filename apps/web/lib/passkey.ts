@@ -13,8 +13,11 @@ export interface WalletPasskey {
   credentialId: string;
   /** Hex salt for the PRF evaluation. */
   prfSalt: string;
-  /** "prf": vault key comes from the passkey. "device-key": PRF unsupported, Face ID gates use only. */
-  protection: "prf" | "device-key";
+  /**
+   * "prf": vault key comes from the passkey. "device-key": PRF unsupported, Face ID gates use only.
+   * "secure-enclave": the iOS app (apps/ios-core), where the Keychain asks for Face ID itself.
+   */
+  protection: "prf" | "device-key" | "secure-enclave";
   /** COSE algorithm: -7 = ES256 (P-256, verifiable on-chain in M4), -257 = RS256. */
   algorithm: number;
   /** Hex SubjectPublicKeyInfo, kept for on-chain verification (M4). */

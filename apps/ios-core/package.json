@@ -1,0 +1,26 @@
+{
+  "name": "@sqw/ios-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The wallet core of the iOS app: the web app's wallet layer and crypto, bundled to run in a hidden WKWebView",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "check": "node build.mjs && node test/run.mjs"
+  },
+  "dependencies": {
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0",
+    "@silencelaboratories/dkls-wasm-ll-web": "1.2.0",
+    "@sqw/bitcoin": "workspace:*",
+    "@sqw/ethereum": "workspace:*",
+    "@sqw/mpc": "workspace:*",
+    "@sqw/shared": "workspace:*",
+    "viem": "2.57.4"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "typescript": "^5.9.3"
+  }
+}

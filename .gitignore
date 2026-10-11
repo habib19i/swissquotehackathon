@@ -16,3 +16,6 @@ spikes/m0-mpc/.shares/
 
 # Copied from node_modules at dev/build time
 apps/web/public/wasm/
+
+# iOS wallet core build (pnpm --filter @sqw/ios-core build)
+apps/ios-core/dist/

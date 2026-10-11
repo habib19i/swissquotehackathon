@@ -15,6 +15,40 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  apps/ios-core:
+    dependencies:
+      '@noble/curves':
+        specifier: 2.4.0
+        version: 2.4.0
+      '@noble/hashes':
+        specifier: 2.4.0
+        version: 2.4.0
+      '@silencelaboratories/dkls-wasm-ll-web':
+        specifier: 1.2.0
+        version: 1.2.0
+      '@sqw/bitcoin':
+        specifier: workspace:*
+        version: link:../../packages/bitcoin
+      '@sqw/ethereum':
+        specifier: workspace:*
+        version: link:../../packages/ethereum
+      '@sqw/mpc':
+        specifier: workspace:*
+        version: link:../../packages/mpc
+      '@sqw/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      viem:
+        specifier: 2.57.4
+        version: 2.57.4(typescript@5.9.3)
+    devDependencies:
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   apps/web:
     dependencies:
       '@noble/curves':
@@ -1930,7 +1964,7 @@ snapshots:
 
   '@bitcoinerlab/secp256k1@1.2.0':
     dependencies:
-      '@noble/curves': 1.9.1
+      '@noble/curves': 1.9.7
 
   '@emnapi/runtime@1.11.3':
     dependencies:
@@ -2404,7 +2438,7 @@ snapshots:
 
   '@scure/bip32@1.7.0':
     dependencies:
-      '@noble/curves': 1.9.1
+      '@noble/curves': 1.9.7
       '@noble/hashes': 1.8.0
       '@scure/base': 1.2.6
 

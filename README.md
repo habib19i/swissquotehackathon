@@ -103,6 +103,7 @@ browser reaches both services through the web app's origin (`/svc/cosigner`, `/s
 | Path | What it is |
 |---|---|
 | `apps/web` | Next.js mobile-first web app (the phone), including the assistant's server route |
+| `apps/ios-core` | The native iOS app's wallet core (in progress): the web app's wallet layer and crypto, bundled to run in a hidden web view; plan in [`docs/ios-plan.md`](docs/ios-plan.md) |
 | `services/cosigner` | Swissquote co-signer (**mock**): share 2, scam shield, rulebook delays, fees, bundler and paymaster, face check, alerts |
 | `services/recovery-provider` | Independent recovery provider (**mock**, TEE simulated): share 3, recovery key, waiting period |
 | `contracts` | Foundry: `RulebookAccount`, its factory, `SwissquotePaymaster`, and the Uniswap and Aave adapters (Base Sepolia) |
