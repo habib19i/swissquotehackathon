@@ -1,6 +1,6 @@
 # Native iOS app: plan
 
-Status: **agreed, in progress. Steps 1 (wallet core) and 2 (Xcode project and bridge) done and tested; next: step 3.** This file
+Status: **agreed, in progress. Steps 1 and 2 done and tested; step 3 screens done, Acts 1, 4 (offline switch) and 5 pass in the Simulator; the Bitcoin payments of Acts 2 and 4 wait for test coins on this Mac (see "Test coins on the Mac").** This file
 is the handoff for building the iOS app on the team Mac. It records the decisions taken on 2026-10-11 and how
 each part of the web app maps to the native app.
 
@@ -160,8 +160,21 @@ The methods are listed in [`apps/ios-core/src/api.ts`](../apps/ios-core/src/api.
 
    Face ID in the Simulator: Features > Face ID > Enrolled, then Matching Face at each prompt (or
    `xcrun simctl spawn "iPhone 17" notifyutil -p com.apple.BiometricKit_Sim.pearl.match`).
-3. **Core story**: login, onboarding, home, Bitcoin send (pocket and Savings), receive, recovery. Run Acts 1, 2
-   (Bitcoin), 4 and 5 of `docs/demo-script.md` in the Simulator.
+3. **Core story**: login, onboarding, home, Bitcoin send (pocket and Savings), receive, recovery, and the part of
+   the Demo panel the core story needs (Swissquote offline, Lose this phone). Screens of later steps say so
+   plainly and link to the web app. UI tests (`apps/ios/SwissquoteWalletUITests`) drive the real screens:
+
+   ```sh
+   apps/ios/scripts/ui-test.sh "iPhone 17" -only-testing:SwissquoteWalletUITests/WalletUITests/testCoreStory
+   apps/ios/scripts/ui-test.sh "iPhone 17" -only-testing:SwissquoteWalletUITests/WalletUITests/testPayments
+   ```
+
+   `testCoreStory` **passed on 2026-10-11** (about 2 min 15 s): Act 1 (log in, Face ID, MPC key, Swissquote's
+   ownership check, recovery passkey through `/native/recovery-key`, Premium, home "Verified yours"), Receive
+   (QR code), Act 4 step 1 (Swissquote offline shown on Home, then back), Act 5 (Lose this phone, new Face ID
+   key, recovery passkey, Mock face check, 60 s waiting period, MPC refresh, **same Savings safe address**).
+   `testPayments` (Act 1 transfers, Act 2 Bitcoin payments, Act 4 offline payments with the recovery key) needs
+   test bitcoin in Swissquote's demo account: not run yet on this Mac.
 4. USDC on Base (Face ID signature on-chain), rules, activity and alerts, attacker mode, Swissquote offline.
 5. Assistant (native speech), Explore, Uniswap and Aave, WalletConnect (reown-swift).
 6. Device run, README and demo script updates, commit.
@@ -185,4 +198,20 @@ The methods are listed in [`apps/ios-core/src/api.ts`](../apps/ios-core/src/api.
   so the core sees one origin. mempool.space and sepolia.base.org answer CORS for the `sqw://core` origin. On a
   device, set `SQW_SERVER_HOST` to the Mac's LAN address (the recovery key still needs an https name, see above).
 
-Still to verify: `ASWebAuthenticationSession` with the recovery-key page in the Simulator (step 3, onboarding).
+- **Recovery key in the Simulator:** works with the synced-passkey option. `ASWebAuthenticationSession` opens
+  `/native/recovery-key` (ephemeral, no consent alert), the page's button brings the system sheet ("Save a
+  passkey?" → Add Passkey, or sign in with it), Face ID, and the answer comes back at `sqwallet://`. iOS logs
+  that http in `ASWebAuthenticationSession` is deprecated: fine on `localhost`, but a device needs the https
+  name anyway. Right after a Face ID prompt the app is briefly inactive and the session refuses to start
+  (`presentationContextInvalid`, error 3): `RecoveryKeySession` waits until the app is active again.
+
+## Test coins on the Mac
+
+The co-signer creates its own hot wallet (Swissquote's demo account and Base relayer) in
+`services/cosigner/cosigner.db` on first start. On this Mac that is a **new, empty** key
+(`tb1q2vxf4xg97rswl6ju24u0ktrcfd3cawpt3r49z0`, `0x046c107047BA7bD43FB665C0132B2Eddcd5edD37`), while the deployed
+`SwissquotePaymaster` (`0x325A…ABbB`) only accepts sponsorships signed by the original machine's key
+(`signer()` = `0xfd0108f7f5bbb4c35ef5d7021b08f62d6ce3df97`). So on this Mac: no Mock transfers until the demo
+account has test bitcoin, and **no USDC payments on Base** until the co-signer uses the original key. Fix: copy
+`services/cosigner/cosigner.db` from the machine that deployed the contracts (it is git-ignored; keep it private:
+it holds Swissquote's Mock share of every safe opened there).

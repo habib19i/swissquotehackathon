@@ -4,9 +4,12 @@ import SwiftUI
 /// Enclave key, the 2-of-3 MPC key is generated with the services on the Mac, Swissquote verifies the
 /// ownership proofs, the vault opens with Face ID, and "Lose this phone" forgets everything.
 ///
-/// Launch with `-bridgeCheck` to run it at start; each result is also printed as `CHECK ok|FAIL …`.
+/// It opens a test safe and forgets it at the end, so it only runs on a phone without a safe; the Mock login
+/// is put back afterwards. Launch with `-bridgeCheck` to run it at start; each result is also printed as
+/// `CHECK ok|FAIL …`.
 struct BridgeCheckView: View {
     @Environment(WalletCore.self) private var core
+    @Environment(Session.self) private var session
     @State private var lines: [(ok: Bool, text: String)] = []
     @State private var running = false
 
@@ -59,12 +62,20 @@ struct BridgeCheckView: View {
     private func run() async {
         running = true
         lines = []
+        let login = try? await core.call("client.load")
         defer {
-            running = false
-            print("CHECK done")
+            Task {
+                if let login, !login.isNull { _ = try? await core.call("client.save", login) } else { _ = try? await core.call("client.logout") }
+                await session.reload()
+                running = false
+                print("CHECK done")
+            }
         }
         do {
             try await core.ready()
+            guard try await core.call("profile.load").isNull else {
+                return check(false, "This phone holds a safe: the check would replace it. Run it on a phone without a safe.")
+            }
             if case .ready(let methods) = core.state { check(methods.count > 40, "core loaded, \(methods.count) methods") }
 
             check(await core.isSecureContext(), "the core runs in a secure context (WebCrypto available)")

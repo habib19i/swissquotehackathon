@@ -1,0 +1,416 @@
+import SwiftUI
+
+/// Home (screen 3): total in CHF, the pockets side by side, Swissquote's protection, and the actions that
+/// need the client (finish setup, refill, move the extra to savings). Mirrors apps/web/app/page.tsx.
+struct HomeView: View {
+    let profile: WalletProfile
+
+    @Environment(Session.self) private var session
+    @Environment(WalletCore.self) private var core
+    @Environment(Navigation.self) private var navigation
+
+    @State private var balances: Balances?
+    @State private var balanceError: String?
+    /// Swissquote's record of this safe; `.null` when Swissquote does not know it yet.
+    @State private var record: JSONValue?
+    /// USDC units; nil while loading, `.none` inside when USDC are not available on this phone.
+    @State private var usdc: Units??
+    @State private var onBase: JSONValue?
+    @State private var positions: (eth: Units, ethInAave: Units)?
+    @State private var online = true
+    @State private var recoveryKey: Bool?
+    @State private var urgent: String?
+    @State private var hidden = false
+    @State private var busy = false
+    @State private var done: Done?
+    @State private var error: String?
+
+    /// The outcome of a Face ID action, with its transaction on either network.
+    private struct Done {
+        var text: String
+        var txid: String?
+        var baseTx: String?
+    }
+
+    /// Above this share of its size, the extra in the pocket is offered back to the Savings safe.
+    private static let pocketExcessMargin = 1.2
+    /// Below this share of its size, the pocket is offered a refill (packages/bitcoin REFILL_THRESHOLD).
+    private static let refillThreshold = 0.5
+
+    private var price: PriceQuote? { session.price }
+    private var pocket: Units? { balances?.pocket.total }
+    private var savings: Units? { balances?.savings.total }
+    private var verified: Bool { record.map { !$0["ownershipVerifiedAt"].isNull } ?? false }
+
+    var body: some View {
+        Screen {
+            header
+            balanceCard
+            quickActions
+            notices
+            Text("Your pockets").font(Theme.Text.l).padding(.top, 8)
+            pockets
+            pocketActions
+            keyCard
+            Button("Demo panel") { navigation.homePath.append(Route.demo) }.buttonStyle(.quiet)
+            Text("Test bitcoin on the Bitcoin test network and test USDC on Base Sepolia, shown at the \(price?.mock == true ? "fixed demo" : "live") price for illustration.")
+                .smallMuted()
+        }
+        .refreshable { await load() }
+        .task {
+            while !Task.isCancelled {
+                await load()
+                try? await Task.sleep(for: .seconds(20))
+            }
+        }
+        .toolbar(.hidden, for: .navigationBar)
+    }
+
+    // MARK: - Sections
+
+    private var header: some View {
+        HStack(spacing: 12) {
+            Avatar(text: profile.client.initials)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(Format.greeting()).smallMuted()
+                Text(profile.client.firstName).font(.system(size: 20, weight: .bold))
+            }
+            Spacer()
+            RoundIconButton(systemImage: "bell", label: urgent == nil ? "Alerts" : "Alerts: one needs your attention", dot: urgent != nil) {
+                navigation.homePath.append(Route.alerts)
+            }
+            RoundIconButton(systemImage: "gearshape", label: "Plan and settings") {
+                navigation.homePath.append(Route.settings)
+            }
+        }
+    }
+
+    private var balanceCard: some View {
+        let usdcChf = (usdc ?? nil).flatMap { units in price.map { Format.usdcChf(units, usdcChf: $0.usdcChf) } } ?? 0
+        let ethWei = (positions?.eth.value ?? 0) + (positions?.ethInAave.value ?? 0)
+        let total = pocket.flatMap { p in savings.map { p + $0 } }
+        let totalChf = total.flatMap { total in price.map { Format.satsToChf(total, btcChf: $0.btcChf) + usdcChf + ethChf(ethWei) } }
+
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("Total value").foregroundStyle(Theme.inkSoft)
+            Button { hidden.toggle() } label: {
+                HStack(spacing: 10) {
+                    Text(totalChf.map { hide(Format.chf($0)) } ?? "…").font(Theme.Text.amount).monospacedDigit()
+                    Image(systemName: hidden ? "eye.slash" : "eye").font(.system(size: 20)).foregroundStyle(Theme.inkSoft)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(hidden ? "Show amounts" : "Hide amounts")
+            if let total, !hidden {
+                let usdcText = (usdc ?? nil).flatMap { $0.value > 0 ? " · \(Format.usdc($0))" : nil } ?? ""
+                Text(Format.btc(total) + usdcText).smallMuted().monospacedDigit()
+            }
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.shield.fill")
+                Text("Protected by Swissquote")
+                if verified {
+                    Text("·")
+                    Image(systemName: "checkmark")
+                    Text("Verified yours")
+                }
+            }
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(Theme.protect)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Theme.protectBg, in: .capsule)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(20)
+        .background(Theme.surface, in: .rect(cornerRadius: Theme.radiusPanel))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Your safe")
+    }
+
+    private var quickActions: some View {
+        HStack(spacing: 8) {
+            QuickAction(title: "Receive", systemImage: "arrow.down") { navigation.homePath.append(Route.receive) }
+            QuickAction(title: "Send", systemImage: "arrow.up.right") { navigation.tab = .send }
+            QuickAction(title: "Activity", systemImage: "clock") { navigation.homePath.append(Route.activity) }
+            QuickAction(title: "Rules", systemImage: "list.bullet.rectangle") { navigation.tab = .rules }
+        }
+    }
+
+    @ViewBuilder private var notices: some View {
+        if !online {
+            Notice(.warn, "Swissquote is offline. Your Spending pocket works as usual. Larger payments from your Savings safe use your recovery key and the independent safe-keeper instead. USDC payments wait until Swissquote is back: in this prototype, Swissquote relays them to the network.")
+        }
+        if let urgent {
+            Button { navigation.homePath.append(Route.alerts) } label: {
+                Notice(.warn) {
+                    Text("Swissquote alert").bold()
+                    Text(urgent)
+                }
+            }
+            .buttonStyle(.plain)
+        }
+        if recoveryKey == false && verified {
+            Button { navigation.homePath.append(Route.recoveryKey) } label: {
+                Notice(.warn) {
+                    Text("Add your recovery key").bold()
+                    Text("Without it, nobody can bring your safe back if you lose this phone.")
+                }
+            }
+            .buttonStyle(.plain)
+        }
+        if record == .null {
+            Notice(.warn) {
+                Text("Swissquote has not verified this safe yet. Finish setting it up to use your Savings safe.")
+                Button("Finish setting up with Face ID") {
+                    act { try await core.call("finishSetupWithFaceId"); return Done(text: "Swissquote has verified that this safe is yours.") }
+                }
+                .buttonStyle(.primary).disabled(busy).padding(.top, 6)
+            }
+        }
+        if let onBase, online, onBase["rulesUpToDate"].bool == false || onBase["passkeyUpToDate"].bool == false {
+            Notice(.warn) {
+                Text("Your USDC account needs your new rules").bold()
+                Text("Your account on Base still follows your previous rules or Face ID. Confirm to bring it up to date.")
+                Button("Update with Face ID") {
+                    act {
+                        let sent = try await core.call("updateRulesOnBase")
+                        return Done(text: "Your USDC account now follows your rules.", baseTx: sent["txHash"].string)
+                    }
+                }
+                .buttonStyle(.primary).disabled(busy).padding(.top, 6)
+            }
+        }
+        if verified, let ethereum = record?["ethereum"], !ethereum.isNull, ethereum["ownershipVerifiedAt"].isNull, online {
+            Notice {
+                Text("Swissquote has not verified your USDC account yet. It takes one Face ID.")
+                Button("Verify with Face ID") {
+                    act { try await core.call("proveUsdcOwnership"); return Done(text: "Swissquote has verified that your USDC account is yours.") }
+                }
+                .buttonStyle(.secondary).disabled(busy).padding(.top, 6)
+            }
+        }
+        if let error = error ?? balanceError { Notice(.error, error) }
+        if let done {
+            Notice(.ok) {
+                Text(done.text)
+                if let txid = done.txid { ExplorerLink(label: "View \(Format.shortId(txid)) on the Bitcoin network", url: Explorer.btcTx(txid)) }
+                if let hash = done.baseTx { ExplorerLink(label: "View \(Format.shortId(hash)) on Base", url: Explorer.baseTx(hash)) }
+            }
+        }
+        if let balances, (balances.pocket.pending + balances.savings.pending).value > 0 {
+            Notice("\(Format.chf(balances.pocket.pending + balances.savings.pending, btcChf: price?.btcChf)) is on its way. Bitcoin payments usually arrive within 10 minutes.")
+        }
+    }
+
+    private var pockets: some View {
+        VStack(spacing: 12) {
+            Button { navigation.tab = .send } label: {
+                PocketRow(token: .btc, title: "Spending pocket", subtitle: "Bitcoin · Face ID only",
+                          amount: pocket.map { hide(Format.chf($0, btcChf: price?.btcChf)) }, detail: pocket.map(Format.btc), hidden: hidden)
+            }
+            Button { navigation.tab = .send } label: {
+                PocketRow(token: .btc, vaultBadge: true, title: "Savings safe", subtitle: "Bitcoin · checked by Swissquote",
+                          amount: savings.map { hide(Format.chf($0, btcChf: price?.btcChf)) }, detail: savings.map(Format.btc), hidden: hidden)
+            }
+            Button { navigation.tab = .send } label: {
+                let units = usdc ?? nil
+                PocketRow(token: .usdc, title: "USDC",
+                          subtitle: usdc != nil && units == nil ? "Not available on this phone" : "On Base · Face ID within your limit",
+                          amount: usdc == nil ? nil : units.map { u in hide(price.map { Format.chf(Format.usdcChf(u, usdcChf: $0.usdcChf)) } ?? "…") } ?? "–",
+                          detail: units.flatMap { $0.value > 0 ? Format.usdc($0) : nil }, hidden: hidden)
+            }
+            if let positions, positions.eth.value > 0 {
+                PocketRow(token: .eth, title: "ETH", subtitle: "On Base · from Uniswap",
+                          amount: hide(Format.chf(ethChf(positions.eth.value))), detail: Format.eth(positions.eth), hidden: hidden)
+            }
+            if let positions, positions.ethInAave.value > 0 {
+                PocketRow(token: .eth, title: "ETH earning in Aave", subtitle: "Interest added every second",
+                          amount: hide(Format.chf(ethChf(positions.ethInAave.value))), detail: Format.eth(positions.ethInAave), hidden: hidden)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder private var pocketActions: some View {
+        if let price, let pocket {
+            let pocketSize = Format.chfToSats(Format.defaultPocketChf, btcChf: price.btcChf)
+            let excess = Double(pocket.value) > Double(pocketSize.value) * Self.pocketExcessMargin ? pocket - pocketSize : .zero
+            let refill = (savings?.value ?? 0) > 0 && Double(pocket.value) < Double(pocketSize.value) * Self.refillThreshold ? pocketSize - pocket : .zero
+            if excess.value > 0 {
+                Button("Move \(Format.chf(excess, btcChf: price.btcChf)) to my Savings safe") {
+                    act {
+                        let txid = try await core.call("moveExcessToSavings", excess).string
+                        return Done(text: "\(Format.chf(excess, btcChf: price.btcChf)) is moving to your Savings safe.", txid: txid)
+                    }
+                }
+                .buttonStyle(.secondary).disabled(busy)
+            }
+            if refill.value > 0 && verified {
+                Button("Refill my Spending pocket") {
+                    act {
+                        let outcome = try await core.call("refillPocketNow", price.btcChf)
+                        if let failure = outcome["error"].string { throw CoreError(name: "RefillError", message: failure) }
+                        if outcome.isNull { return nil }
+                        return Done(text: "\(Format.chf(Units(outcome["amount"]), btcChf: price.btcChf)) is moving to your Spending pocket.",
+                                    txid: outcome["txid"].string)
+                    }
+                }
+                .buttonStyle(.secondary).disabled(busy)
+            }
+        }
+    }
+
+    private var keyCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("One key, three pieces").font(.system(size: 18, weight: .bold))
+            Text("Any two can sign. Swissquote alone never can.").smallMuted()
+            KeyHolders(ready: [true, true, true]).padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(20)
+        .background(Theme.surface, in: .rect(cornerRadius: Theme.radiusCard))
+    }
+
+    // MARK: - Data
+
+    private func hide(_ text: String) -> String { hidden ? "••••" : text }
+
+    private func ethChf(_ wei: Int64) -> Double { price.map { Double(wei) / 1e18 * $0.ethChf } ?? 0 }
+
+    private func load() async {
+        async let balancesTask = core.call("loadBalances", as: Balances.self)
+        async let recordTask = core.call("swissquoteRecord", profile.walletId)
+        async let usdcTask = core.call("loadUsdcBalance", as: Units.self)
+        async let positionsTask = core.call("loadPositions")
+        async let onlineTask = core.call("swissquoteOnline")
+        async let recoveryTask = core.call("hasRecoveryKey", profile.walletId)
+        async let alertsTask = core.call("cosigner.alerts", profile.walletId)
+
+        do {
+            balances = try await balancesTask
+            balanceError = nil
+        } catch {
+            balanceError = "Balances could not be loaded from the Bitcoin network. Retrying…"
+        }
+        record = try? await recordTask
+        if let units = try? await usdcTask {
+            usdc = .some(units)
+            onBase = try? await core.call("cosigner.ethStatus", profile.walletId)
+        } else if usdc == nil {
+            usdc = .some(nil)
+        }
+        if let value = try? await positionsTask {
+            positions = (Units(value["eth"]), Units(value["ethInAave"]))
+        }
+        online = (try? await onlineTask)?.bool ?? false
+        recoveryKey = (try? await recoveryTask)?.bool
+        urgent = (try? await alertsTask).flatMap(Self.openRequest)
+    }
+
+    /// The latest alert the client may need to act on: a change on hold, or a recovery under way. Alerts are
+    /// newest first: a request is still open if nothing newer concerns the same change or recovery.
+    private static func openRequest(in alerts: JSONValue) -> String? {
+        let list = alerts.array
+        for (index, alert) in list.enumerated() {
+            guard ["rulebook-change-requested", "recovery-started"].contains(alert["type"].string ?? "") else { continue }
+            let newer = list[..<index]
+            let closed = newer.contains { other in
+                (alert["changeId"].string != nil && other["changeId"] == alert["changeId"])
+                    || (alert["recoveryId"].string != nil && other["recoveryId"] == alert["recoveryId"])
+            }
+            if !closed { return alert["message"].string }
+        }
+        return nil
+    }
+
+    private func act(_ action: @escaping () async throws -> Done?) {
+        Task {
+            busy = true
+            done = nil
+            error = nil
+            defer { busy = false }
+            do {
+                done = try await action()
+                await load()
+            } catch {
+                self.error = error.localizedDescription
+            }
+        }
+    }
+}
+
+private struct PocketRow: View {
+    let token: TokenMark.Token
+    var vaultBadge = false
+    let title: String
+    let subtitle: String
+    let amount: String?
+    let detail: String?
+    let hidden: Bool
+
+    var body: some View {
+        RowCard(title: title, subtitle: subtitle) {
+            TokenMark(token: token, vaultBadge: vaultBadge)
+        } trailing: {
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(amount ?? "…").font(.system(size: 18, weight: .semibold)).monospacedDigit()
+                if let detail, !hidden { Text(detail).smallMuted().monospacedDigit() }
+            }
+        }
+    }
+}
+
+private struct QuickAction: View {
+    let title: String
+    let systemImage: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 20, weight: .semibold))
+                    .frame(width: 52, height: 52)
+                    .background(Theme.brand, in: .circle)
+                    .foregroundStyle(Theme.onBrand)
+                Text(title).font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.ink)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct RoundIconButton: View {
+    let systemImage: String
+    let label: String
+    var dot = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 18, weight: .semibold))
+                .frame(width: 44, height: 44)
+                .background(Theme.surface, in: .circle)
+                .overlay(alignment: .topTrailing) {
+                    if dot { Circle().fill(Theme.danger).frame(width: 10, height: 10).offset(x: -4, y: 4) }
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+}
+
+extension Units {
+    /// A bigint field from a plain JSON answer.
+    init(_ json: JSONValue) {
+        self.init(json.string.flatMap { Int64($0) } ?? json.number.map { Int64($0) } ?? 0)
+    }
+}
+
+extension Format {
+    static func eth(_ wei: Units) -> String {
+        "ETH " + (Double(wei.value) / 1e18).formatted(.number.precision(.fractionLength(4...6)).locale(Locale(identifier: "en_CH")))
+    }
+}

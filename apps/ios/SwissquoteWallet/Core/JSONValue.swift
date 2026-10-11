@@ -2,7 +2,7 @@ import Foundation
 
 /// Any JSON the wallet core returns or takes, for calls without a dedicated Swift type.
 /// Amounts cross as decimal strings (bigints), so numbers here are only small values (prices, counts).
-enum JSONValue: Codable, Equatable, Sendable {
+nonisolated enum JSONValue: Codable, Equatable, Sendable {
     case null
     case bool(Bool)
     case number(Double)

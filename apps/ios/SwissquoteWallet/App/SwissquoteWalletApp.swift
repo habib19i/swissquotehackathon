@@ -3,7 +3,20 @@ import WebKit
 
 @main
 struct SwissquoteWalletApp: App {
-    @State private var core = WalletCore()
+    @State private var core: WalletCore
+    @State private var session: Session
+
+    init() {
+        // UI tests start from a fresh phone: no login, no safe, no Face ID key.
+        if ProcessInfo.processInfo.arguments.contains("-freshPhone") {
+            Storage().deleteAll()
+            Vault.deleteAll()
+            FaceIdKey.deleteAll()
+        }
+        let core = WalletCore()
+        _core = State(initialValue: core)
+        _session = State(initialValue: Session(core: core))
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -15,10 +28,16 @@ struct SwissquoteWalletApp: App {
                     .opacity(0.01)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
-                BridgeCheckView()
+                if ProcessInfo.processInfo.arguments.contains("-bridgeCheck") {
+                    BridgeCheckView()
+                } else {
+                    RootView()
+                }
             }
             .environment(core)
-            .background(Theme.paper)
+            .environment(session)
+            .task { await session.reload() }
+            .task { await session.followPrice() }
         }
     }
 }

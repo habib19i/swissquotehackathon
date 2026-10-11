@@ -3,7 +3,7 @@ import UIKit
 
 /// Colour tokens of the web app (apps/web/app/globals.css, measured from swissquote.com), light and dark.
 /// Every pair used together is WCAG AA in both (replica/design/contrast.mjs).
-enum Theme {
+nonisolated enum Theme {
     static let paper = color(light: 0xeff3fa, dark: 0x121417)
     static let surface = color(light: 0xffffff, dark: 0x1c1f24)
     static let surfaceAlt = color(light: 0xf3f4f6, dark: 0x262a30)

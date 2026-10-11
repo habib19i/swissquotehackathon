@@ -25,19 +25,29 @@ final class RecoveryKeySession: NSObject, ASWebAuthenticationPresentationContext
         var page = URLComponents(url: AppConfig.webURL.appending(path: "native/recovery-key"), resolvingAgainstBaseURL: false)!
         page.fragment = fragment.percentEncodedQuery
 
+        // Right after a Face ID prompt the app is briefly inactive, and the session refuses to start
+        // (presentationContextInvalid): wait until the app is active again.
+        for _ in 0..<30 where UIApplication.shared.applicationState != .active {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+
         let callback: URL = try await withCheckedThrowingContinuation { continuation in
+            // The completion can run inside start() when the session cannot open: answer only once.
+            var answered = false
+            let answer = { (result: Result<URL, NativeError>) in
+                guard !answered else { return }
+                answered = true
+                continuation.resume(with: result)
+            }
             let session = ASWebAuthenticationSession(url: page.url!, callback: .customScheme(AppConfig.callbackScheme)) { url, error in
-                if let url { continuation.resume(returning: url) }
-                else if let error = error as? ASWebAuthenticationSessionError, error.code == .canceledLogin {
-                    continuation.resume(throwing: NativeError("cancelled"))
-                } else {
-                    continuation.resume(throwing: NativeError(error?.localizedDescription ?? "The recovery key page did not answer."))
-                }
+                if let url { answer(.success(url)) }
+                else if let error = error as? ASWebAuthenticationSessionError, error.code == .canceledLogin { answer(.failure(NativeError("cancelled"))) }
+                else { answer(.failure(NativeError("The recovery key page did not open: \(error?.localizedDescription ?? "no answer")."))) }
             }
             session.presentationContextProvider = self
             session.prefersEphemeralWebBrowserSession = true
             self.session = session
-            if !session.start() { continuation.resume(throwing: NativeError("The recovery key page could not be opened.")) }
+            if !session.start() { answer(.failure(NativeError("The recovery key page could not be opened."))) }
         }
         session = nil
 
@@ -50,9 +60,12 @@ final class RecoveryKeySession: NSObject, ASWebAuthenticationPresentationContext
         return try JSONSerialization.jsonObject(with: response)
     }
 
+    /// The app's window. Right after a Face ID prompt no window may be key yet, so the active scene's
+    /// first window is the fallback (an empty new window would fail with presentationContextInvalid).
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        return scenes.flatMap(\.windows).first(where: \.isKeyWindow) ?? ASPresentationAnchor()
+            .sorted { ($0.activationState == .foregroundActive ? 0 : 1) < ($1.activationState == .foregroundActive ? 0 : 1) }
+        return scenes.lazy.compactMap { $0.keyWindow ?? $0.windows.first }.first ?? ASPresentationAnchor()
     }
 }
 

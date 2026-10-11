@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import OSLog
 import WebKit
 
 /// The wallet core: the web app's own wallet layer and crypto (DKLs23, bitcoinjs-lib, viem, `@sqw/*`),
@@ -77,6 +78,8 @@ final class WalletCore {
     func call<T: Decodable>(_ method: String, _ args: any Encodable..., as type: T.Type) async throws -> T {
         let answer = try JSONDecoder().decode(Answer<T>.self, from: try await invoke(method, args))
         if answer.ok, let value = answer.value { return value }
+        // `null` is a valid answer when T is optional (no client, no safe on this phone).
+        if answer.ok, let none = try? JSONDecoder().decode(T.self, from: Data("null".utf8)) { return none }
         throw answer.error ?? CoreError(name: "BadAnswer", message: "The wallet core gave an empty answer to \(method).")
     }
 
@@ -121,15 +124,19 @@ final class WalletCore {
         }
         guard let id = message["id"] as? Int, let method = message["method"] as? String else { return }
         let params = message["params"] as? [String: Any] ?? [:]
+        Self.log.info("\(method, privacy: .public)")
         Task {
             do {
                 let value = try await native.handle(method, params)
                 await reply(id, ok: true, value)
             } catch {
+                Self.log.error("\(method, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
                 await reply(id, ok: false, ["message": error.localizedDescription])
             }
         }
     }
+
+    private static let log = Logger(subsystem: "ch.swissquote.wallet.prototype", category: "native")
 
     private func reply(_ id: Int, ok: Bool, _ value: [String: Any]) async {
         let data = (try? JSONSerialization.data(withJSONObject: value)) ?? Data("{}".utf8)
@@ -150,7 +157,7 @@ private final class MessageRelay: NSObject, WKScriptMessageHandler {
 }
 
 /// An error the core reported, with the fields the screens react to (see apps/ios-core/src/index.ts).
-struct CoreError: Error, LocalizedError, Decodable, Equatable {
+nonisolated struct CoreError: Error, LocalizedError, Decodable, Equatable {
     let name: String
     let message: String
     var status: Int?

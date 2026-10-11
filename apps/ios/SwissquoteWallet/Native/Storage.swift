@@ -9,4 +9,8 @@ struct Storage {
     func get(_ key: String) -> String? { defaults.string(forKey: prefix + key) }
     func set(_ key: String, _ value: String) { defaults.set(value, forKey: prefix + key) }
     func delete(_ key: String) { defaults.removeObject(forKey: prefix + key) }
+
+    func deleteAll() {
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(prefix) { defaults.removeObject(forKey: key) }
+    }
 }
