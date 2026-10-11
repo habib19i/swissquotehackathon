@@ -11,7 +11,7 @@ struct ExploreView: View {
     @State private var approved: Set<String> = []
 
     var body: some View {
-        Screen {
+        Screen(tabs: true) {
             Text("Explore").titleStyle()
             Text("Apps Swissquote has checked for you. Whatever you get back always lands in your own safe.").leadStyle()
             HStack(spacing: 10) {

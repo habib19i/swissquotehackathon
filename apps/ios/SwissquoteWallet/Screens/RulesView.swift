@@ -30,7 +30,7 @@ struct RulesView: View {
     static let appNames = ["uniswap": "Uniswap", "aave": "Aave"]
 
     var body: some View {
-        Screen {
+        Screen(tabs: true) {
             Text("Contacts and rules").titleStyle()
             Text("Making your rules stricter is instant. Loosening them takes 24 hours, so you can stop anything you did not ask for.")
                 .leadStyle()

@@ -54,7 +54,7 @@ private struct ContactStep: View {
     @State private var error: String?
 
     var body: some View {
-        Screen {
+        Screen(tabs: true) {
             Text("Who do you want to pay?").titleStyle()
             if let error { Notice(.error, error) }
             if contacts?.isEmpty == true { Text("You have no contacts yet.").leadStyle() }

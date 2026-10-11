@@ -64,7 +64,7 @@ struct AssistantView: View {
 
     private var chat: some View {
         ScrollViewReader { scroller in
-            Screen {
+            Screen(tabs: true) {
                 HStack {
                     Text("Assistant").titleStyle()
                     Spacer()

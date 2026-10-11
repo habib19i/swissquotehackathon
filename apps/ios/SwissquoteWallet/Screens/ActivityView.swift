@@ -10,7 +10,7 @@ struct ActivityView: View {
     @State private var error: String?
 
     var body: some View {
-        Screen {
+        Screen(tabs: true) {
             Text("Activity").titleStyle()
             if let error { Notice(.error, error) }
             if !unavailable.isEmpty {

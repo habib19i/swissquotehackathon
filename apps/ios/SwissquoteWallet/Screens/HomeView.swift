@@ -43,7 +43,7 @@ struct HomeView: View {
     private var verified: Bool { record.map { !$0["ownershipVerifiedAt"].isNull } ?? false }
 
     var body: some View {
-        Screen {
+        Screen(tabs: true) {
             header
             balanceCard
             quickActions

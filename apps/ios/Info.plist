@@ -2,6 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Geist, the web app's typeface (SIL Open Font License, Resources/Fonts/Geist-LICENSE.txt). -->
+	<key>UIAppFonts</key>
+	<array>
+		<string>Geist-Regular.ttf</string>
+		<string>Geist-Medium.ttf</string>
+		<string>Geist-SemiBold.ttf</string>
+		<string>Geist-Bold.ttf</string>
+	</array>
 	<!-- In the Simulator the services on the Mac are plain http on localhost. -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
