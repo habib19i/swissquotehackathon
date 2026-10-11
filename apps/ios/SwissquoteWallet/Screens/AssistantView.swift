@@ -288,6 +288,7 @@ private struct FlowSuggestions: View {
                     .foregroundStyle(Theme.ink)
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("Suggestions")
     }
 }

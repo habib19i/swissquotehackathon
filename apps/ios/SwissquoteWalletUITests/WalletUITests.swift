@@ -136,6 +136,38 @@ final class WalletUITests: XCTestCase {
         attach("attacker")
     }
 
+    /// Step 5 without test coins: Explore (catalogue, Uniswap's exchange panel and approval, WalletConnect
+    /// screen) and the assistant (a request gets an answer: a card, a question, or why it cannot help).
+    func testExploreAndAssistant() {
+        openSafe(clientNumber: "CH-4417-\(Int.random(in: 3000...9999))")
+
+        app.tabBars.buttons["Explore"].tap()
+        XCTAssertTrue(app.staticTexts["Explore"].waitForExistence(timeout: 10))
+        let uniswap = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Uniswap'")).firstMatch
+        XCTAssertTrue(uniswap.waitForExistence(timeout: 30), app.debugDescription)
+        uniswap.tap()
+        XCTAssertTrue(app.staticTexts["Exchange USDC for ETH, and back"].waitForExistence(timeout: 10))
+        app.swipeUp()
+        XCTAssertTrue(app.buttons["Approve with Face ID"].waitForExistence(timeout: 60), app.debugDescription)
+        attach("explore-uniswap")
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        tap("Scan an app’s QR code")
+        XCTAssertTrue(app.staticTexts["Connect an app"].waitForExistence(timeout: 10))
+        attach("explore-connect")
+
+        app.tabBars.buttons["Assistant"].tap()
+        XCTAssertTrue(app.staticTexts["Assistant"].waitForExistence(timeout: 10))
+        XCTAssertTrue(text(containing: "Elisabeth").waitForExistence(timeout: 30), "No greeting\n\(app.debugDescription)")
+        app.buttons["Send 20 francs to Léo"].tap()
+        // One answer from the assistant after the client's request: whatever it is, it is in plain words.
+        let answers = app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'Assistant: '"))
+        let two = NSPredicate(format: "count >= 2")
+        _ = XCTWaiter.wait(for: [expectation(for: two, evaluatedWith: answers)], timeout: 60)
+        let card = app.staticTexts["Check your payment"]
+        XCTAssertTrue(card.exists || answers.count >= 2, app.debugDescription)
+        attach("assistant")
+    }
+
     /// Acts 1 and 2 (Bitcoin), 4: real payments on signet. Needs test bitcoin in Swissquote's demo account.
     func testPayments() throws {
         openSafe(clientNumber: "CH-4417-\(Int.random(in: 3000...9999))")

@@ -1,6 +1,6 @@
 # Native iOS app: plan
 
-Status: **agreed, in progress. Steps 1 and 2 done and tested; step 3 screens done, Acts 1, 4 (offline switch) and 5 pass in the Simulator; the Bitcoin payments of Acts 2 and 4 wait for test coins on this Mac (see "Test coins on the Mac").** This file
+Status: **every screen is in the app (steps 1 to 5). Tested in the Simulator through the phone's path (https tunnel): the core story, rules, alerts, attacker mode, Explore. Waiting on this Mac for: test coins and the original co-signer key (payments), the assistant's LLM key, the Reown project ID, and an iPhone with a signing account (step 6). See "On an iPhone" and "Test coins on the Mac".**
 is the handoff for building the iOS app on the team Mac. It records the decisions taken on 2026-10-11 and how
 each part of the web app maps to the native app.
 
@@ -175,9 +175,40 @@ The methods are listed in [`apps/ios-core/src/api.ts`](../apps/ios-core/src/api.
    key, recovery passkey, Mock face check, 60 s waiting period, MPC refresh, **same Savings safe address**).
    `testPayments` (Act 1 transfers, Act 2 Bitcoin payments, Act 4 offline payments with the recovery key) needs
    test bitcoin in Swissquote's demo account: not run yet on this Mac.
-4. USDC on Base (Face ID signature on-chain), rules, activity and alerts, attacker mode, Swissquote offline.
-5. Assistant (native speech), Explore, Uniswap and Aave, WalletConnect (reown-swift).
+4. **USDC on Base, rules, activity, alerts, settings, attacker mode: done.** `testRulesAttackerAndAlerts`
+   passed through the tunnel: a new contact is screened by Swissquote, waits and is cancelled; freeze is
+   instant, unfreeze waits; Alerts cancels a request; plan Standard and back; Attacker mode stops the CHF 5,000
+   payment (BLOCKED in bitcoin and USDC) and the recovery to the thief's phone. USDC payments themselves wait
+   for the original co-signer key (see "Test coins on the Mac").
+5. **Assistant, Explore, Uniswap and Aave, WalletConnect: done.** The assistant's turn runs in the core
+   (`apps/ios-core/src/assistant.ts`, the web page's own logic); voice is Apple's speech recognition, on the
+   phone when the language allows (Mock of Swiss-hosted speech-to-text). Explore reads the catalogue from the
+   core. WalletConnect uses reown-swift 2.4.0 (`ReownWalletKit`) and CryptoSwift 1.10.0 (keccak-256) as Swift
+   packages; its relay socket is `URLSessionWebSocketTask`, and its keys use the app's own Keychain group (a
+   free Apple account has no App Groups). Sessions: Base Sepolia only; requests: `eth_sendTransaction` only,
+   prepared and checked by Swissquote, confirmed with Face ID; message signatures refused. Needs
+   `NEXT_PUBLIC_REOWN_PROJECT_ID`; the assistant needs `LLM_API_KEY` (or `HF_TOKEN`).
 6. Device run, README and demo script updates, commit.
+
+## On an iPhone
+
+The phone reaches the Mac through an https tunnel to the Next.js server, which forwards `/svc/cosigner` and
+`/svc/recovery` to the two services. The recovery key needs https and a real host name, which the tunnel gives.
+
+```sh
+apps/ios/scripts/tunnel.sh        # Cloudflare quick tunnel to :3000; prints https://….trycloudflare.com and
+                                  # writes RP_ID, APP_ORIGINS and DEV_ORIGINS into .env. Anyone with the URL can
+                                  # reach the (Mock) services while it runs: stop it with Ctrl+C after the demo.
+pnpm phone                        # restart the services (they read .env at start); the web part runs as a
+                                  # production build: Next's dev server does not load reliably through a tunnel
+pnpm --filter @sqw/ios-core build
+apps/ios/scripts/device.sh TEAM_ID https://….trycloudflare.com
+```
+
+`device.sh` builds with your Apple team (Xcode > Settings > Accounts; a free account works, the app then lasts 7
+days), installs on the connected iPhone (cable, "Trust this computer", Developer Mode on) and starts it against
+the tunnel. The address can also be changed in the app: Hackathon prototype > Swissquote services. A new tunnel
+has a new name, and recovery keys are tied to the name they were added under: keep one tunnel for a whole demo.
 
 ## Verified on the Mac (2026-10-11)
 
@@ -192,11 +223,13 @@ The methods are listed in [`apps/ios-core/src/api.ts`](../apps/ios-core/src/api.
   (`LAContext`) before each use; the check screen says so. On a device the Secure Enclave and the Keychain
   enforce Face ID themselves. Same signature format either way.
 - **Network:** the Simulator shares the Mac's network, so `localhost` reaches the services. `Info.plist` sets
-  `NSAllowsLocalNetworking` (plain http on the local network). The Mac's address is one build setting,
-  `SQW_SERVER_HOST` (default `localhost`), read as `AppConfig.serverHost`. The scheme handler serves the core at
-  `sqw://core/` and proxies `/svc/cosigner/`, `/svc/recovery/` and `/api/` (the core calls `/api/price` itself)
-  so the core sees one origin. mempool.space and sepolia.base.org answer CORS for the `sqw://core` origin. On a
-  device, set `SQW_SERVER_HOST` to the Mac's LAN address (the recovery key still needs an https name, see above).
+  `NSAllowsLocalNetworking` (plain http on the local network). The app has one server address, the Next.js
+  server (build setting `SQW_SERVER_URL`, default `http://localhost:3000`, changeable in the Demo panel), which
+  forwards `/svc/*` to the services. The scheme handler serves the core at `sqw://core/` and proxies
+  `/svc/cosigner/`, `/svc/recovery/` and `/api/` (the core calls `/api/price` itself) so the core sees one
+  origin. mempool.space and sepolia.base.org answer CORS for the `sqw://core` origin. A device uses the https
+  tunnel (see "On an iPhone"): the EPFL network does not let devices reach each other, and the recovery key
+  needs an https name.
 
 - **Recovery key in the Simulator:** works with the synced-passkey option. `ASWebAuthenticationSession` opens
   `/native/recovery-key` (ephemeral, no consent alert), the page's button brings the system sheet ("Save a
@@ -214,4 +247,7 @@ The co-signer creates its own hot wallet (Swissquote's demo account and Base rel
 (`signer()` = `0xfd0108f7f5bbb4c35ef5d7021b08f62d6ce3df97`). So on this Mac: no Mock transfers until the demo
 account has test bitcoin, and **no USDC payments on Base** until the co-signer uses the original key. Fix: copy
 `services/cosigner/cosigner.db` from the machine that deployed the contracts (it is git-ignored; keep it private:
-it holds Swissquote's Mock share of every safe opened there).
+it holds Swissquote's Mock share of every safe opened there). Safes opened on that machine cannot be recovered
+here (their recovery-provider share stays there); new safes are fine. That machine's `.env` also has the values
+this Mac lacks: `LLM_API_KEY` (or `HF_TOKEN`) for the assistant and `NEXT_PUBLIC_REOWN_PROJECT_ID` for
+WalletConnect.

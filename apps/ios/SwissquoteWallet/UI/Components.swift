@@ -102,6 +102,7 @@ struct KeyHolders: View {
                 .accessibilityValue(ready[index] ? "ready" : "waiting")
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityLabel("Who holds a piece of your key")
     }
 }

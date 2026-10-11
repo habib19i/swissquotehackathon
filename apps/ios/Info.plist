@@ -9,6 +9,9 @@
 		<true/>
 	</dict>
 	<!-- The Next.js server on the Mac (build setting SQW_SERVER_URL); the app's Demo panel can change it. -->
+	<!-- WalletConnect (Reown) project ID, public by design: build setting SQW_REOWN_PROJECT_ID. -->
+	<key>SQWReownProjectID</key>
+	<string>$(SQW_REOWN_PROJECT_ID)</string>
 	<key>SQWServerURL</key>
 	<string>$(SQW_SERVER_URL)</string>
 </dict>

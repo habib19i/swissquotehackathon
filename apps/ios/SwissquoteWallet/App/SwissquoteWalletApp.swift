@@ -5,6 +5,7 @@ import WebKit
 struct SwissquoteWalletApp: App {
     @State private var core: WalletCore
     @State private var session: Session
+    @State private var walletConnect = WalletConnectService()
 
     init() {
         AppConfig.rememberLaunchArgument()
@@ -37,6 +38,7 @@ struct SwissquoteWalletApp: App {
             }
             .environment(core)
             .environment(session)
+            .environment(walletConnect)
             .task { await session.reload() }
             .task { await session.followPrice() }
         }

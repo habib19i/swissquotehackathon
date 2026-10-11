@@ -46,6 +46,7 @@ struct RootView: View {
 private struct MainTabs: View {
     let profile: WalletProfile
     @Environment(Navigation.self) private var navigation
+    @Environment(WalletConnectService.self) private var walletConnect
 
     var body: some View {
         @Bindable var navigation = navigation
@@ -54,7 +55,7 @@ private struct MainTabs: View {
                 NavigationStack(path: $navigation.homePath) { HomeView(profile: profile).withRoutes(profile: profile) }
             }
             Tab("Explore", systemImage: "safari", value: .explore) {
-                NavigationStack { NotYetInApp(title: "Explore", step: 5).withRoutes(profile: profile) }
+                NavigationStack { ExploreView(profile: profile).withRoutes(profile: profile) }
             }
             Tab("Assistant", systemImage: "bubble.left.and.text.bubble.right", value: .assistant) {
                 NavigationStack { AssistantView(profile: profile).withRoutes(profile: profile) }
@@ -67,6 +68,9 @@ private struct MainTabs: View {
             }
         }
         .tint(Theme.brandText)
+        // Connected websites' requests appear over any screen; WalletKit restores earlier connections.
+        .background { ConnectOverlay(profile: profile) }
+        .task { walletConnect.start() }
     }
 }
 
@@ -91,20 +95,6 @@ private extension View {
 private struct RecoveryKeyAgain: View {
     @Environment(\.dismiss) private var dismiss
     var body: some View { RecoveryKeySetup { dismiss() } }
-}
-
-/// A screen of the web app not yet ported (docs/ios-plan.md, build order). Says so plainly.
-struct NotYetInApp: View {
-    let title: String
-    let step: Int
-
-    var body: some View {
-        Screen {
-            Text(title).titleStyle()
-            Notice(.warn, "This screen comes to the iOS app in step \(step) of the build plan. Meanwhile it works in the web app.")
-            Link("Open the web app", destination: AppConfig.webURL).font(.system(size: 18, weight: .semibold))
-        }
-    }
 }
 
 /// The wallet core could not start: nothing works without it, so say why.

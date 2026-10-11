@@ -101,6 +101,7 @@ struct AlertsView: View {
                     .accessibilityElement(children: .combine)
                 }
             }
+            .accessibilityElement(children: .contain)
             .accessibilityLabel("Alerts")
         }
         .task {

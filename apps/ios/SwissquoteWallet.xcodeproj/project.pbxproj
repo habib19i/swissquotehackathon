@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		C10000000000000000000001 /* ReownWalletKit in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000011 /* ReownWalletKit */; };
+		C10000000000000000000002 /* CryptoSwift in Frameworks */ = {isa = PBXBuildFile; productRef = C10000000000000000000012 /* CryptoSwift */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		A10000000000000000000001 /* SwissquoteWallet.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SwissquoteWallet.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000000000002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -32,6 +37,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C10000000000000000000001 /* ReownWalletKit in Frameworks */,
+				C10000000000000000000002 /* CryptoSwift in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -84,6 +91,10 @@
 				A10000000000000000000003 /* SwissquoteWallet */,
 			);
 			name = SwissquoteWallet;
+			packageProductDependencies = (
+				C10000000000000000000011 /* ReownWalletKit */,
+				C10000000000000000000012 /* CryptoSwift */,
+			);
 			productName = SwissquoteWallet;
 			productReference = A10000000000000000000001 /* SwissquoteWallet.app */;
 			productType = "com.apple.product-type.application";
@@ -132,6 +143,10 @@
 				Base,
 			);
 			mainGroup = A10000000000000000000005;
+			packageReferences = (
+				C10000000000000000000021 /* XCRemoteSwiftPackageReference "reown-swift" */,
+				C10000000000000000000022 /* XCRemoteSwiftPackageReference "CryptoSwift" */,
+			);
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A10000000000000000000006 /* Products */;
@@ -231,6 +246,7 @@
 				MARKETING_VERSION = 0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = ch.swissquote.wallet.prototype;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SQW_REOWN_PROJECT_ID = "";
 				SQW_SERVER_URL = "http://localhost:3000";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -267,6 +283,7 @@
 				MARKETING_VERSION = 0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = ch.swissquote.wallet.prototype;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SQW_REOWN_PROJECT_ID = "";
 				SQW_SERVER_URL = "http://localhost:3000";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -380,6 +397,38 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		C10000000000000000000021 /* XCRemoteSwiftPackageReference "reown-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/reown-com/reown-swift";
+			requirement = {
+				kind = exactVersion;
+				version = 2.4.0;
+			};
+		};
+		C10000000000000000000022 /* XCRemoteSwiftPackageReference "CryptoSwift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/krzyzanowskim/CryptoSwift";
+			requirement = {
+				kind = exactVersion;
+				version = 1.10.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		C10000000000000000000011 /* ReownWalletKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C10000000000000000000021 /* XCRemoteSwiftPackageReference "reown-swift" */;
+			productName = ReownWalletKit;
+		};
+		C10000000000000000000012 /* CryptoSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C10000000000000000000022 /* XCRemoteSwiftPackageReference "CryptoSwift" */;
+			productName = CryptoSwift;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A1000000000000000000000B /* Project object */;
 }
